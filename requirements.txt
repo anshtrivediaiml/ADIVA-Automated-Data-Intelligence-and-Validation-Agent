@@ -1,0 +1,26 @@
+fastapi
+uvicorn
+python-multipart>=0.0.6  # Required for file uploads
+python-docx
+pdfplumber
+pandas
+requests
+python-dotenv # AI & LLM
+mistralai>=0.1.0
+loguru
+
+# Export Formats
+openpyxl>=3.1.0        # Excel export
+jinja2>=3.1.0          # HTML templating
+MarkupSafe>=2.1.0      # HTML safety
+
+# OCR Dependencies (optional)
+pytesseract>=0.3.10    # OCR engine wrapper
+pdf2image>=1.17.0      # PDF to image conversion
+Pillow>=10.0.0         # Image processing
+langdetect>=1.0.9
+python-magic-bin
+tabulate
+camelot-py[cv]
+pikepdf
+opencv-python
