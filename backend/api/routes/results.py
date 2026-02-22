@@ -4,7 +4,7 @@ Results Routes
 Endpoints for retrieving and managing extraction results.
 """
 
-from fastapi import APIRouter, HTTPException, Query, Path as PathParam
+from fastapi import APIRouter, HTTPException, Query, Path as PathParam, Depends
 from fastapi.responses import FileResponse, JSONResponse
 from typing import Optional
 import sys
@@ -17,6 +17,7 @@ backend_path = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(backend_path))
 
 from api.models.responses import ExtractionListResponse, ExtractionListItem
+from api.middleware.auth_middleware import get_current_user
 from logger import logger
 import config
 
@@ -24,7 +25,10 @@ router = APIRouter()
 
 
 @router.get("/results/{extraction_id}")
-async def get_results(extraction_id: str):
+async def get_results(
+    extraction_id: str,
+    current_user: dict = Depends(get_current_user)
+):
     """
     Get extraction results by ID
     
@@ -59,7 +63,8 @@ async def get_results(extraction_id: str):
 @router.get("/download/{extraction_id}/{format}")
 async def download_file(
     extraction_id: str,
-    format: str = PathParam(..., pattern="^(json|csv|xlsx|html)$", description="File format")
+    format: str = PathParam(..., pattern="^(json|csv|xlsx|html)$", description="File format"),
+    current_user: dict = Depends(get_current_user)
 ):
     """
     Download extraction file in specific format
@@ -121,7 +126,8 @@ async def download_file(
 async def list_extractions(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(20, ge=1, le=100, description="Items per page"),
-    document_type: Optional[str] = Query(None, description="Filter by document type")
+    document_type: Optional[str] = Query(None, description="Filter by document type"),
+    current_user: dict = Depends(get_current_user)
 ):
     """
     List all extractions
@@ -199,7 +205,10 @@ async def list_extractions(
 
 
 @router.delete("/extractions/{extraction_id}")
-async def delete_extraction(extraction_id: str):
+async def delete_extraction(
+    extraction_id: str,
+    current_user: dict = Depends(get_current_user)
+):
     """
     Delete extraction and all associated files
     

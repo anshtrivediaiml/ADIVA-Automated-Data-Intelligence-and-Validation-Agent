@@ -56,3 +56,6 @@ outputs/validated/*
 data/samples/*
 !data/samples/.gitkeep
 
+#test images
+test_images/*
+!test_images/.gitkeep

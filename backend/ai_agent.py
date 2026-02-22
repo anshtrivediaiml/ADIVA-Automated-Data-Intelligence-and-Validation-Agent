@@ -58,22 +58,49 @@ class AIAgent:
             
             # Create classification prompt
             prompt = f"""Analyze the following document excerpt and classify its type.
+The document may be in English, Hindi, or Gujarati language.
 
-Document types to choose from:
-- invoice: Bills, invoices, receipts, payment documents
-- resume: CVs, resumes, job applications, professional profiles
-- contract: Agreements, contracts, legal documents, terms of service
-- report: Business reports, analysis documents, white papers
-- letter: Business letters, correspondence
-- form: Application forms, questionnaires
-- other: Any document that doesn't fit the above categories
+Document types to choose from (choose the MOST SPECIFIC match):
+
+── General Documents ──────────────────────────────────────────────────────────
+- invoice: Tax invoices, GST bills, receipts (कर चालान, GST बिल, केवटे / ઇન્વૉઇ, GST ચલણ)
+- resume: CV, resume, biodata, job application (बायोडाटा / બાયોડેટા)
+- contract: Service agreements, NDAs, rental agreements (सेवा अनुबंध, किरायानामा / ભાડા કરાર)
+- prescription: Doctor prescription with medicine name+dosage (पर्चा, दवा / દવા)
+- certificate: Marriage/educational/completion certificate with registration number and official seal (प्रमाण पत्र / પ્રમાણ પત્ર) — only use if not birth/death/GST/driving certificate
+- bank_statement: Bank passbook, account statement with debit/credit transactions (बैंक पासबुक, खाता विवरण / બૅન્ક પાસ-બૂક)
+- marksheet: Exam result sheet, report card, mark list (अंकसूची, परिणाम पत्र / માર્કશીટ)
+- ration_card: Ration card with family members and ration shop (राशन कार्ड / રેશન કાર્ડ)
+- utility_bill: Electricity/water/gas bill with meter reading and due date (विद्युत बिल, पानी बिल / વીજ બિલ, ગૅસ બિલ)
+
+── Identity Documents ──────────────────────────────────────────────────────────
+- aadhar_card: Aadhaar card with 12-digit UID, UIDAI logo (आधार, UID / આઘાર, UID)
+- pan_card: PAN card with 10-char PAN number, Income Tax Department (पैन कार्ड / પૅન કાર્ડ)
+- driving_licence: Driving licence with vehicle class (LMV/MCWG/HMV), RTO (ड्राइविंग लाइसेंस / ડ્રાઇવિંગ લાઇસન્સ)
+- passport: Indian passport with passport number (P<IND), MRZ lines, Republic of India (पासपोर्ट / પાસ-પ-ોર્ટ)
+
+── Financial Documents ─────────────────────────────────────────────────────────
+- cheque: Bank cheque or demand draft with MICR band, payee name, amount (चेक, बैंक ड्राफ्ट / ચૅક, ડ્રાફ્ટ)
+- form_16: Form 16 TDS certificate with TAN, Assessment Year, employer/employee (फॉर्म 16, टीडीएस / ફૉ-ર્મ 16)
+- insurance_policy: Insurance policy/cover note with policy number, sum assured, premium, nominee (बीमा पॉलिसी / વીમો)
+- gst_certificate: GST registration certificate with GSTIN 15-char code (जीएसटी प्रमाण पत्र / GST પ્રમાણ પત્ર)
+
+── Civil / Government Records ──────────────────────────────────────────────────
+- birth_certificate: Birth certificate with child's name, date of birth, hospital/place of birth, parents (जन्म प्रमाण पत्र / જન્મ દાખલો)
+- death_certificate: Death certificate with deceased name, date of death, cause of death (मृत्यु प्रमाण पत्र / મૃત્યુ દાખલો)
+- land_record: Land record — 7/12 Utara, Khatauni, Jamabandi — with survey/khasra/gut number and owner list (7/12 उतारा, खसरा / 7/12 ઉતારો)
+- nrega_card: NREGA/MGNREGA job card with job card number, gram panchayat, work entries (नरेगा जॉब कार्ड / નરેગા-જૉબ-કાર્ડ)
+
+── Fallback ────────────────────────────────────────────────────────────────────
+- form: Generic application forms, questionnaires not fitting above categories
+- other: Document that doesn't fit any above category
 
 Document excerpt:
 {sample}
 
 Respond ONLY with valid JSON in this exact format:
 {{
-  "document_type": "one of the types above",
+  "document_type": "one of the exact type keys above",
   "confidence": 0.95,
   "reasoning": "brief explanation of why you chose this type",
   "alternative_type": "second most likely type or null"
@@ -115,64 +142,129 @@ Respond ONLY with valid JSON in this exact format:
     
     def extract_structured_data(self, full_text: str, document_type: str) -> Dict[str, Any]:
         """
-        Extract structured data based on document type schema
-        
-        Args:
-            full_text: Complete document text
-            document_type: Type of document (invoice, resume, contract)
-            
-        Returns:
-            Extracted structured data matching the schema
+        Extract structured data based on document type schema.
+        Case 7: For long documents (> 8000 chars), uses chunked extraction
+        with overlap and merges results for complete coverage.
         """
         try:
-            # Get schema for document type
             schema = get_schema(document_type)
-            
             if not schema:
                 logger.warning(f"No schema found for document type: {document_type}")
                 return {}
-            
-            # Get schema definition and instructions
+
             schema_dict = schema.get_schema()
             instructions = schema.get_prompt_instructions()
-            
-            # Create extraction prompt
+
+            # Case 7: Chunked extraction for long documents
+            CHUNK_SIZE = 4000
+            OVERLAP = 500
+
+            if len(full_text) > CHUNK_SIZE * 2:
+                logger.info(
+                    f"Long document ({len(full_text)} chars) — using chunked extraction "
+                    f"(chunks={CHUNK_SIZE}, overlap={OVERLAP})"
+                )
+                return self._extract_chunked(
+                    full_text, document_type, schema_dict, instructions,
+                    chunk_size=CHUNK_SIZE, overlap=OVERLAP
+                )
+
+            # Normal single-pass extraction
             prompt = self._create_extraction_prompt(full_text, document_type, schema_dict, instructions)
-            
-            # Call Mistral API
             logger.info(f"Calling Mistral AI for {document_type} data extraction")
             response = self.client.chat.complete(
                 model=self.model,
-                messages=[
-                    {"role": "user", "content": prompt}
-                ],
+                messages=[{"role": "user", "content": prompt}],
                 temperature=self.temperature,
                 max_tokens=self.max_tokens
             )
-            
-            # Extract response
             response_text = response.choices[0].message.content
             log_ai_response(len(prompt), len(response_text), self.model)
-            
-            # Parse JSON response
+
             extracted_data = self._parse_json_response(response_text)
-            
             if not extracted_data:
                 raise ValueError("Failed to parse extraction response")
-            
-            # Validate against schema
+
             is_valid, issues = schema.validate_extracted_data(extracted_data)
-            
             if not is_valid:
                 logger.warning(f"Validation issues: {issues}")
-            
+
             logger.info(f"Successfully extracted {len(extracted_data)} top-level fields")
             return extracted_data
-            
+
         except Exception as e:
             log_error("StructuredExtraction", str(e), f"Document type: {document_type}")
             return {}
-    
+
+    def _extract_chunked(
+        self, full_text: str, document_type: str,
+        schema_dict: dict, instructions: str,
+        chunk_size: int = 4000, overlap: int = 500
+    ) -> Dict[str, Any]:
+        """
+        Extract structured data from a long document by chunking.
+        Merges results: later chunks fill in null fields from earlier chunks.
+        """
+        # Build chunks with overlap
+        chunks = []
+        start = 0
+        while start < len(full_text):
+            end = min(start + chunk_size, len(full_text))
+            chunks.append(full_text[start:end])
+            if end == len(full_text):
+                break
+            start = end - overlap
+
+        logger.info(f"Chunked extraction: {len(chunks)} chunks for {document_type}")
+
+        merged = {}
+        for i, chunk in enumerate(chunks):
+            logger.info(f"Extracting chunk {i+1}/{len(chunks)} ({len(chunk)} chars)")
+            try:
+                prompt = self._create_extraction_prompt(
+                    chunk, document_type, schema_dict, instructions
+                )
+                response = self.client.chat.complete(
+                    model=self.model,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=self.temperature,
+                    max_tokens=self.max_tokens
+                )
+                chunk_data = self._parse_json_response(response.choices[0].message.content)
+                if chunk_data:
+                    merged = self._merge_extraction_results(merged, chunk_data)
+            except Exception as e:
+                logger.warning(f"Chunk {i+1} extraction failed: {e}")
+                continue
+
+        merged['_chunked_extraction'] = True
+        merged['_chunks_processed'] = len(chunks)
+        return merged
+
+    def _merge_extraction_results(self, base: dict, update: dict) -> dict:
+        """
+        Merge two extraction result dicts.
+        Rule: update values override base values ONLY if base value is null/empty.
+        Lists are extended (not replaced) to accumulate items across chunks.
+        """
+        if not base:
+            return dict(update)
+
+        result = dict(base)
+        for key, val in update.items():
+            if key not in result or result[key] is None or result[key] == '':
+                result[key] = val
+            elif isinstance(result[key], list) and isinstance(val, list):
+                # Extend lists (e.g. transactions, line_items, family_members)
+                existing_strs = {str(item) for item in result[key]}
+                for item in val:
+                    if str(item) not in existing_strs:
+                        result[key].append(item)
+            elif isinstance(result[key], dict) and isinstance(val, dict):
+                result[key] = self._merge_extraction_results(result[key], val)
+        return result
+
+
     def _create_extraction_prompt(self, text: str, doc_type: str, schema: dict, instructions: str) -> str:
         """
         Create prompt for structured extraction

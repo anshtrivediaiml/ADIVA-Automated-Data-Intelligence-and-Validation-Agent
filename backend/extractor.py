@@ -16,9 +16,12 @@ import json
 from extractors.preprocessor import DocumentPreprocessor
 from extractors.pdf_extractor import PDFExtractor
 from extractors.docx_extractor import DOCXExtractor
-from extractors.ocr_extractor import OCRExtractor
+from extractors.ocr_extractor import OCRExtractor, _detect_script_from_text, _is_garbage_text
 from logger import logger, log_extraction, log_error
 import config
+
+# Map Tesseract codes to display names
+_LANG_DISPLAY = {'eng': 'English', 'hin': 'Hindi', 'guj': 'Gujarati'}
 
 
 class DocumentExtractor:
@@ -113,9 +116,35 @@ class DocumentExtractor:
             
             # Step 3: Extract text
             extraction_log.append("Step 3: Extracting text content")
-            raw_text = extractor.extract_text(file_path)
+
+            if hasattr(extractor, 'extract_text') and isinstance(extractor, OCRExtractor):
+                raw_text = extractor.extract_text(file_path, language=None)
+            else:
+                raw_text = extractor.extract_text(file_path)
+
+            # Case 8: Garbage text detection for digital PDFs
+            # If a "digital" PDF has garbage embedded text (bad prior OCR),
+            # re-route to the OCR extractor for proper extraction.
+            if not isinstance(extractor, OCRExtractor) and file_type == 'pdf':
+                if _is_garbage_text(raw_text):
+                    logger.warning(
+                        f"Digital PDF '{file_path.name}' has garbage embedded text "
+                        f"(likely bad prior OCR). Re-routing to OCR extractor."
+                    )
+                    extraction_log.append(
+                        "Step 3b: Garbage text detected in digital PDF — re-routing to OCR"
+                    )
+                    extractor = self.ocr_extractor
+                    raw_text = extractor.extract_text(file_path, language=None)
+
             word_count = len(raw_text.split())
             extraction_log.append(f"Extracted {len(raw_text)} characters, {word_count} words")
+
+            # Detect language from extracted text using Unicode script ranges
+            detected_lang_code = _detect_script_from_text(raw_text)
+            detected_lang_display = _LANG_DISPLAY.get(detected_lang_code, detected_lang_code)
+            extraction_log.append(f"Detected language: {detected_lang_display}")
+            logger.info(f"Document language detected: {detected_lang_display}")
             
             # Step 4: Extract metadata
             extraction_log.append("Step 4: Extracting metadata")
@@ -139,24 +168,32 @@ class DocumentExtractor:
             else:
                 extraction_log.append("Step 6: AI classification skipped (AI agent not available)")
             
-            # Step 7: Structured Data Extraction (if document type recognized)
+            # Step 7: Structured Data Extraction (if document type has a schema)
             structured_data = None
             extraction_confidence = None
-            
-            if self.ai_agent and classification and classification['document_type'] in ['invoice', 'resume', 'contract']:
-                extraction_log.append(f"Step 7: Extracting structured data for {classification['document_type']}")
+
+            # Dynamically use the schema registry — any type with a registered schema
+            # will automatically be extracted. No need to maintain a hardcoded list.
+            from schemas import SCHEMA_REGISTRY
+
+            doc_type = classification['document_type'] if classification else 'unknown'
+            has_schema = doc_type in SCHEMA_REGISTRY
+
+            if self.ai_agent and classification and has_schema:
+                extraction_log.append(f"Step 7: Extracting structured data for {doc_type}")
                 try:
-                    structured_data = self.ai_agent.extract_structured_data(raw_text, classification['document_type'])
+                    structured_data = self.ai_agent.extract_structured_data(raw_text, doc_type)
                     extraction_confidence = self.ai_agent.calculate_extraction_confidence(
-                        structured_data, 
-                        classification['document_type']
+                        structured_data,
+                        doc_type
                     )
                     extraction_log.append(f"Structured extraction complete (confidence: {extraction_confidence})")
                 except Exception as e:
                     logger.error(f"Structured extraction failed: {e}")
                     extraction_log.append(f"Structured extraction failed: {str(e)}")
             else:
-                extraction_log.append("Step 7: Structured extraction skipped")
+                extraction_log.append(f"Step 7: Structured extraction skipped (type '{doc_type}' has no schema)")
+
             
             # Step 8: Prepare output
             processing_time = time.time() - start_time
@@ -175,6 +212,8 @@ class DocumentExtractor:
                     'processing_time_seconds': round(processing_time, 2),
                     'extractor_used': extractor.name,
                     'quality_assessment': quality,
+                    'detected_language': detected_lang_display,
+                    'detected_language_code': detected_lang_code,
                     **metadata
                 },
                 'text': {

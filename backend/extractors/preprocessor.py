@@ -27,6 +27,13 @@ except ImportError:
     HAS_PYPDF2 = False
 
 try:
+    import pikepdf
+    HAS_PIKEPDF = True
+except ImportError:
+    HAS_PIKEPDF = False
+    logger.info("pikepdf not installed. Password-protected PDF detection limited.")
+
+try:
     import magic
     HAS_MAGIC = True
 except ImportError:
@@ -133,6 +140,20 @@ class DocumentPreprocessor:
             }
             
             if file_type == 'pdf':
+                # Case 6: Check for password protection FIRST
+                if HAS_PIKEPDF:
+                    try:
+                        pikepdf.open(file_path)  # Will raise if password-protected
+                    except pikepdf.PasswordError:
+                        quality['readable'] = False
+                        quality['quality_score'] = 0.0
+                        quality['issues'].append('password_protected')
+                        quality['error'] = 'Document is password protected. Please provide an unlocked version.'
+                        logger.warning(f"Password-protected PDF: {file_path.name}")
+                        return quality
+                    except Exception:
+                        pass  # Other pikepdf errors — continue with pdfplumber
+
                 with pdfplumber.open(file_path) as pdf:
                     quality['num_pages'] = len(pdf.pages)
                     quality['is_scanned'] = self.is_scanned_pdf(file_path)

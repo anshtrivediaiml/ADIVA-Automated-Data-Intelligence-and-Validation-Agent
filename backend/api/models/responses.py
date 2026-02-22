@@ -15,6 +15,7 @@ class ExtractionResponse(BaseModel):
     extraction_id: str = Field(..., description="Unique extraction identifier")
     document_type: Optional[str] = Field(None, description="Detected document type")
     confidence: Optional[float] = Field(None, description="Overall extraction confidence")
+    detected_language: Optional[str] = Field(None, description="Auto-detected document language (English/Hindi/Gujarati)")
     extraction_folder: str = Field(..., description="Path to extraction folder")
     files: Dict[str, str] = Field(default_factory=dict, description="Generated file paths")
     extracted_data: Optional[Dict[str, Any]] = Field(None, description="Complete extracted JSON data")
@@ -27,6 +28,7 @@ class ExtractionResponse(BaseModel):
                 "extraction_id": "20260204_180000_invoice",
                 "document_type": "invoice",
                 "confidence": 0.885,
+                "detected_language": "Hindi",
                 "extraction_folder": "outputs/extracted/20260204_180000_invoice",
                 "files": {
                     "json": "extraction.json",

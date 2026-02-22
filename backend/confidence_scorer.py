@@ -161,11 +161,11 @@ class ConfidenceScorer:
             if 'line_items' in data and 'subtotal' in data:
                 checks += 1
                 calculated_subtotal = sum(
-                    item.get('total', 0) 
+                    (item.get('total') or 0)   # coerce None → 0
                     for item in data.get('line_items', [])
                 )
-                stated_subtotal = data.get('subtotal', 0)
-                if abs(calculated_subtotal - stated_subtotal) > 0.01:
+                stated_subtotal = data.get('subtotal') or 0   # coerce None → 0
+                if stated_subtotal > 0 and abs(calculated_subtotal - stated_subtotal) > 0.01:
                     issues += 1
         
         elif doc_type == 'resume':
