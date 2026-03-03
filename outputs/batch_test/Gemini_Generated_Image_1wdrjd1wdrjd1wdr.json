@@ -1,0 +1,159 @@
+{
+  "status": "success",
+  "metadata": {
+    "filename": "Gemini_Generated_Image_1wdrjd1wdrjd1wdr.png",
+    "file_path": "test_images\\Gemini_Generated_Image_1wdrjd1wdrjd1wdr.png",
+    "file_size_bytes": 7557442,
+    "file_type": "image",
+    "processed_at": "2026-02-20 01:12:22",
+    "processing_time_seconds": 37.82,
+    "extractor_used": "OCRExtractor",
+    "quality_assessment": {
+      "file_type": "image",
+      "file_size": 7557442,
+      "readable": true,
+      "quality_score": 1.0,
+      "issues": [],
+      "dimensions": [
+        2816,
+        1536
+      ],
+      "mode": "RGBA"
+    },
+    "detected_language": "Gujarati",
+    "detected_language_code": "guj",
+    "extraction_method": "ocr",
+    "ocr_engine": "tesseract+easyocr",
+    "available_languages": [
+      "eng",
+      "guj",
+      "hin",
+      "osd"
+    ],
+    "easyocr_available": true,
+    "img2table_available": true,
+    "num_pages": 1,
+    "dimensions": [
+      2816,
+      1536
+    ],
+    "mode": "RGBA"
+  },
+  "text": {
+    "raw": "[Language: Gujarati, OCR Confidence: 88.7%, Engine: tesseract]\n\nहु w છે. | રિ\n4 SI. હિરેન શાહ; MBBS, MD — સામાન્ય ચિકિત્સક\nક્લિનિક सरनामुं: १०२, રવિ કોમ્પલેક્સ, યુનિવર્સિટી ais, રાજકોટ — ૩૬૦૦૦૫, ગુજરાત. ફોનઃ ०२८१-२३४५५७८\n\nનામઃ રાજેશભાઈ પટેલ ઉંમરઃ ૪૫ વર્ષ તારીખઃ 1¢/02/2025\n૧. ટેબ. પેરાસીટામોલ suo મિગ્રા - સવારે, બપોરે, રાત્રે (જરૂર મુજબ) - પ દિવસ\n2. Su. એમોક્સિસિલિન ૫૦૦ મિગ્રા - સવારે, રાત્રે - દિવસ\n- ૩. ટેબ. પેન્ટોપ્રાઝોલ wo મિગ્રા - સવારે ભૂખ્યા પેટે - દિવસ\n४. સીરપ. કફકેર - 2 ચમચી સવારે, બપોરે, રાત્રે - પ દિવસ\nપ. ટેબ. સેટરિઝિન ૧૦ મિગ્રા - રાત્રે સુતા પહેલા - u દિવસ\nસૂચનાઓ : |\n* આરામ કરવો.\n* હળવો ખોરાક લેવો. ર Sl.\n\n૦ પુષ્કળ પાણી પીવું.\n\n",
+    "length": 645,
+    "word_count": 118
+  },
+  "tables": [],
+  "extraction_log": [
+    "Step 1: Preprocessing and quality assessment",
+    "File type detected: image",
+    "Quality score: 1.0",
+    "Step 2: Selecting extractor",
+    "Using OCR extractor (image)",
+    "Step 3: Extracting text content",
+    "Extracted 645 characters, 118 words",
+    "Detected language: Gujarati",
+    "Step 4: Extracting metadata",
+    "Step 5: Extracting tables",
+    "Found 0 tables",
+    "Step 6: AI document classification",
+    "Classified as: prescription (confidence: 0.99)",
+    "Step 7: Extracting structured data for prescription",
+    "Structured extraction complete (confidence: 1.0)",
+    "Step 8: Extraction complete in 37.82 seconds",
+    "Step 8: Saving results to: 20260220_011222_Gemini_Generated_Image_1wdrjd1wdrjd1wdr",
+    "Step 9: Exporting to multiple formats",
+    "  ✓ CSV: extraction.csv",
+    "  ✓ Excel: extraction.xlsx",
+    "  ✓ HTML: extraction.html"
+  ],
+  "classification": {
+    "document_type": "prescription",
+    "confidence": 0.99,
+    "reasoning": "The document contains a doctor's details (name, qualifications, clinic address), patient information (name, age), and a list of medicines with dosage instructions, which are characteristic features of a medical prescription.",
+    "alternative_type": null
+  },
+  "structured_data": {
+    "doctor_name": "હિરેન શાહ",
+    "doctor_qualifications": "MBBS, MD",
+    "clinic_name": "રવિ કોમ્પલેક્સ",
+    "clinic_address": "૧૦૨, રવિ કોમ્પલેક્સ, યુનિવર્સિટી રોડ, રાજકોટ — ૩૬૦૦૦૫, ગુજરાત",
+    "clinic_phone": "0281-2345578",
+    "patient_name": "રાજેશભાઈ પટેલ",
+    "patient_age": "45 વર્ષ",
+    "patient_gender": null,
+    "date": "2025-02-11",
+    "medicines": [
+      {
+        "name": "ટેબ. પેરાસીટામોલ",
+        "dosage": "500 મિગ્રા",
+        "frequency": "સવારે, બપોરે, રાત્રે (જરૂર મુજબ)",
+        "duration": "5 દિવસ",
+        "instructions": null
+      },
+      {
+        "name": "કેપ્સ્યુલ એમોક્સિસિલિન",
+        "dosage": "500 મિગ્રા",
+        "frequency": "સવારે, રાત્રે",
+        "duration": "7 દિવસ",
+        "instructions": null
+      },
+      {
+        "name": "ટેબ. પેન્ટોપ્રાઝોલ",
+        "dosage": "40 મિગ્રા",
+        "frequency": "સવારે",
+        "duration": "7 દિવસ",
+        "instructions": "ભૂખ્યા પેટે"
+      },
+      {
+        "name": "સીરપ. કફકેર",
+        "dosage": "2 ચમચી",
+        "frequency": "સવારે, બપોરે, રાત્રે",
+        "duration": "5 દિવસ",
+        "instructions": null
+      },
+      {
+        "name": "ટેબ. સેટરિઝિન",
+        "dosage": "10 મિગ્રા",
+        "frequency": "રાત્રે સુતા પહેલા",
+        "duration": "7 દિવસ",
+        "instructions": null
+      }
+    ],
+    "diagnosis": null,
+    "instructions": [
+      "આરામ કરવો.",
+      "હળવો ખોરાક લેવો.",
+      "પુષ્કળ પાણી પીવું."
+    ],
+    "follow_up": null,
+    "registration_number": null
+  },
+  "extraction_confidence": 1.0,
+  "comprehensive_confidence": {
+    "overall_confidence": 0.909,
+    "metrics": {
+      "schema_completeness": 1.0,
+      "data_quality": 0.714,
+      "field_confidence": 0.9,
+      "consistency": 1.0,
+      "ocr_quality": 1.0
+    },
+    "grade": "A",
+    "explanations": [
+      "✅ All required fields are present",
+      "⚠️ Some fields have missing or invalid data"
+    ],
+    "recommendations": [
+      "Manually verify and correct invalid or missing field values"
+    ]
+  },
+  "output_file": "C:\\Users\\AnshTrivedi\\OneDrive - ProductSquads Technolabs LLP\\Documents\\ADIVA\\outputs\\extracted\\20260220_011222_Gemini_Generated_Image_1wdrjd1wdrjd1wdr\\extraction.json",
+  "extraction_folder": "C:\\Users\\AnshTrivedi\\OneDrive - ProductSquads Technolabs LLP\\Documents\\ADIVA\\outputs\\extracted\\20260220_011222_Gemini_Generated_Image_1wdrjd1wdrjd1wdr",
+  "exports": {
+    "csv": "C:\\Users\\AnshTrivedi\\OneDrive - ProductSquads Technolabs LLP\\Documents\\ADIVA\\outputs\\extracted\\20260220_011222_Gemini_Generated_Image_1wdrjd1wdrjd1wdr\\extraction.csv",
+    "excel": "C:\\Users\\AnshTrivedi\\OneDrive - ProductSquads Technolabs LLP\\Documents\\ADIVA\\outputs\\extracted\\20260220_011222_Gemini_Generated_Image_1wdrjd1wdrjd1wdr\\extraction.xlsx",
+    "html": "C:\\Users\\AnshTrivedi\\OneDrive - ProductSquads Technolabs LLP\\Documents\\ADIVA\\outputs\\extracted\\20260220_011222_Gemini_Generated_Image_1wdrjd1wdrjd1wdr\\extraction.html"
+  }
+}

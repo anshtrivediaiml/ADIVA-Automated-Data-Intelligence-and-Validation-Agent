@@ -25,7 +25,7 @@ class ExtractionResponse(BaseModel):
         json_schema_extra = {
             "example": {
                 "status": "success",
-                "extraction_id": "20260204_180000_invoice",
+                "extraction_id": "8d4f5a3e-6c7b-4a2a-9c2a-0e8b6b2a9c1f",
                 "document_type": "invoice",
                 "confidence": 0.885,
                 "detected_language": "Hindi",

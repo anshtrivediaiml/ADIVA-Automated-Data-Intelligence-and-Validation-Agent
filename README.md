@@ -76,9 +76,11 @@ adiva/
 
 ## 🏃‍♂️ Running the Application
 
+Use the unified API entry point:
+
 ```bash
 cd backend
-python main.py
+python -m uvicorn api.main:app --reload
 ```
 
 The API will be available at `http://localhost:8000`
@@ -89,9 +91,67 @@ Once the server is running, access the interactive API documentation at:
 - Swagger UI: `http://localhost:8000/docs`
 - ReDoc: `http://localhost:8000/redoc`
 
+## 🆔 Extraction IDs
+
+The API now returns a **UUID** as `extraction_id`. Use that UUID for:
+- `GET /api/results/{extraction_id}`
+- `GET /api/download/{extraction_id}/{format}`
+- `DELETE /api/extractions/{extraction_id}`
+
 ## 🧪 Testing
 
 Place sample PDF or DOCX files in the `data/samples/` directory for testing.
+
+## 🗄️ Database (Supabase Postgres)
+
+This project uses PostgreSQL for persistence. Supabase is recommended for hosted Postgres.
+
+### Supabase Setup
+1. Create a new Supabase project.
+2. In the Supabase dashboard, go to **Project Settings → Database**.
+3. Copy the **Connection string** (Postgres) and set it in `.env`:
+   ```
+   DATABASE_URL=postgresql+psycopg://postgres:YOUR_PASSWORD@db.YOUR_PROJECT_REF.supabase.co:5432/postgres?sslmode=require
+   ```
+
+### Run Migrations
+```bash
+alembic upgrade head
+```
+
+This will create the core tables:
+`users`, `documents`, `extractions`, `extraction_results`, `extraction_outputs`, `validation_reports`, `audit_logs`.
+
+### Seed Admin User
+Set these in `.env`:
+```
+ADMIN_EMAIL=admin@example.com
+ADMIN_PASSWORD=change_me
+ADMIN_NAME=Admin
+ADMIN_USERNAME=admin
+ADMIN_ROLE=admin
+```
+
+Then run:
+```bash
+python backend/db/seed_admin.py
+```
+
+### Reset Admin User (Optional)
+To delete an existing admin and seed a new one, set these in `.env`:
+```
+ADMIN_DELETE_EMAILS=old@example.com
+ADMIN_EMAIL=new@example.com
+ADMIN_PASSWORD=your_secure_password
+ADMIN_NAME=Your Name
+ADMIN_USERNAME=yourusername
+ADMIN_ROLE=admin
+```
+
+Then run:
+```bash
+python backend/db/reset_admin.py
+```
 
 ## 📝 Development Status
 

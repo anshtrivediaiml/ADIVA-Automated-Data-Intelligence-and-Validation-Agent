@@ -1,0 +1,75 @@
+{
+  "status": "success",
+  "metadata": {
+    "filename": "Gemini_Generated_Image_oohwmdoohwmdoohw.png",
+    "file_path": "test_images\\Gemini_Generated_Image_oohwmdoohwmdoohw.png",
+    "file_size_bytes": 8951107,
+    "file_type": "image",
+    "processed_at": "2026-02-20 01:22:23",
+    "processing_time_seconds": 140.07,
+    "extractor_used": "OCRExtractor",
+    "quality_assessment": {
+      "file_type": "image",
+      "file_size": 8951107,
+      "readable": true,
+      "quality_score": 1.0,
+      "issues": [],
+      "dimensions": [
+        2816,
+        1536
+      ],
+      "mode": "RGBA"
+    },
+    "detected_language": "Gujarati",
+    "detected_language_code": "guj",
+    "extraction_method": "ocr",
+    "ocr_engine": "tesseract+easyocr",
+    "available_languages": [
+      "eng",
+      "guj",
+      "hin",
+      "osd"
+    ],
+    "easyocr_available": true,
+    "img2table_available": true,
+    "num_pages": 1,
+    "dimensions": [
+      2816,
+      1536
+    ],
+    "mode": "RGBA"
+  },
+  "text": {
+    "raw": "[Language: Gujarati, OCR Confidence: 52.8%, Engine: tesseract]\n\na as\n\n=\n\nwn\n\n>> VG\n\nce\n\nor\n\n- 70\n\nકે\n\nલજન\n\n“7४9\n\ntty as\n\nCoa\n\n૭?\n\n«7 ९१ “દૃ?\n\nતખ\n\nAa\n\nSw\n\n>\n\no\n\nwv\n\nao\n\nWV ~\n\n—_ D> a>\n\nys\n\nor Ww\n\nTS\n\nજ 7 Fs\n\nप्र\n\nSun\n\noe\n\n&\n\nxe\n\nas\n\nor\n\nIto\n\nનત\n\na\n\nप्रा = છું\n\n500૫\n\nખુ\n\n>\n\n>\n\n53 0\n\n०/ જ\n\nm=\n\nor\n\nઈટ\n\nx\n\nca\n\n7\n\nSen\n\na —\n\noS\n\nત્ઝ\n\nas\n\ncw\n\nकर\n\n&\n\nx ૫\n\nZz ન\n\nfey\n\n7 x\n\nmw\n\nlop,\n\n2. ८०\n\nwo તડ\n\nવસ?\n\nન\n\nD\n\nos\n\nae\n\n[ee\n\nષ્ઝ\n\naoe\n\n(४)\n\n 82\n\n= 3\n\n I\n\n7 =D\n\nBD 5૫૦૦\n\n= (2\n\n४१...\n\nao lor\n\n1 ७०)\n\nજ 3-૬૦\n\noe\n\n3\n\nછત તત:૭5\n\nre 2 0:52\n\n=?\n\nuy J\n\nહ\n\nor ५०७\n\nney ત: 9)\n\nહઝ ૫\n\n>?\n\n25૭\n\nઇક\n\nઇજ\n\n=S\n\nor ov\n\nvm\n\noO To\n\nસત્તત\n\n.\n\n----»\n\nee ee\n\n=\n\n>>... a ne\n\ntenn”\n",
+    "length": 643,
+    "word_count": 159
+  },
+  "tables": [],
+  "extraction_log": [
+    "Step 1: Preprocessing and quality assessment",
+    "File type detected: image",
+    "Quality score: 1.0",
+    "Step 2: Selecting extractor",
+    "Using OCR extractor (image)",
+    "Step 3: Extracting text content",
+    "Extracted 643 characters, 159 words",
+    "Detected language: Gujarati",
+    "Step 4: Extracting metadata",
+    "Step 5: Extracting tables",
+    "Found 0 tables",
+    "Step 6: AI document classification",
+    "Classified as: other (confidence: 0.95)",
+    "Step 7: Structured extraction skipped (type 'other' has no schema)",
+    "Step 8: Extraction complete in 140.07 seconds",
+    "Step 8: Saving results to: 20260220_012223_Gemini_Generated_Image_oohwmdoohwmdoohw",
+    "Step 9: Format exports skipped (no structured data)"
+  ],
+  "classification": {
+    "document_type": "other",
+    "confidence": 0.95,
+    "reasoning": "The document excerpt appears to be heavily corrupted or misread by OCR, with no coherent text, recognizable structure, or identifiable keywords related to any of the specified document types. The presence of random characters, symbols, and fragmented Gujarati/Hindi text does not align with the typical content of invoices, resumes, contracts, or other listed categories.",
+    "alternative_type": null
+  },
+  "output_file": "C:\\Users\\AnshTrivedi\\OneDrive - ProductSquads Technolabs LLP\\Documents\\ADIVA\\outputs\\extracted\\20260220_012223_Gemini_Generated_Image_oohwmdoohwmdoohw\\extraction.json",
+  "extraction_folder": "C:\\Users\\AnshTrivedi\\OneDrive - ProductSquads Technolabs LLP\\Documents\\ADIVA\\outputs\\extracted\\20260220_012223_Gemini_Generated_Image_oohwmdoohwmdoohw"
+}

@@ -6,7 +6,7 @@ Use as: Depends(get_current_user)
 """
 
 from fastapi import Depends, HTTPException
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError
 import sys
 from pathlib import Path
@@ -16,12 +16,18 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from api.auth.jwt_handler import decode_token
 import config
 from logger import logger
+from db.session import get_db
+from db import models
+from sqlalchemy.orm import Session
 
-# Tells FastAPI where the login endpoint is (used by Swagger UI "Authorize" button)
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+# Simple Bearer token handler for Swagger "Authorize" button
+bearer_scheme = HTTPBearer(auto_error=False)
 
 
-def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    db: Session = Depends(get_db),
+) -> models.User:
     """
     Validate incoming Bearer JWT token and return the user dict.
 
@@ -34,12 +40,15 @@ def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
     """
     credentials_exception = HTTPException(
         status_code=401,
-        detail="Could not validate credentials — token is missing, expired, or invalid.",
+        detail="Not authenticated",
         headers={"WWW-Authenticate": "Bearer"},
     )
 
     try:
-        payload = decode_token(token)
+        if not credentials or credentials.scheme.lower() != "bearer":
+            raise credentials_exception
+
+        payload = decode_token(credentials.credentials)
         email: str = payload.get("sub")
         if not email:
             raise credentials_exception
@@ -47,11 +56,8 @@ def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
         logger.warning(f"JWT validation failed: {e}")
         raise credentials_exception
 
-    # Look up user in hardcoded store
-    user = next(
-        (u for u in config.HARDCODED_USERS if u["email"].lower() == email.lower()),
-        None
-    )
+    # Look up user in database
+    user = db.query(models.User).filter(models.User.email == email).first()
     if user is None:
         logger.warning(f"Token valid but user not found: {email}")
         raise credentials_exception
@@ -59,11 +65,11 @@ def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
     return user
 
 
-def require_admin(current_user: dict = Depends(get_current_user)) -> dict:
+def require_admin(current_user: models.User = Depends(get_current_user)) -> models.User:
     """
     Additional dependency: requires the user to have role='admin'.
     Chain with get_current_user for admin-only routes.
     """
-    if current_user.get("role") != "admin":
+    if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
     return current_user

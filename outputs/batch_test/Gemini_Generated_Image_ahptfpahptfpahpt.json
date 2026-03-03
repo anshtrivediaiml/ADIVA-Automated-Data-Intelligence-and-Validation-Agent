@@ -1,0 +1,127 @@
+{
+  "status": "success",
+  "metadata": {
+    "filename": "Gemini_Generated_Image_ahptfpahptfpahpt.png",
+    "file_path": "test_images\\Gemini_Generated_Image_ahptfpahptfpahpt.png",
+    "file_size_bytes": 8126540,
+    "file_type": "image",
+    "processed_at": "2026-02-20 01:12:55",
+    "processing_time_seconds": 30.38,
+    "extractor_used": "OCRExtractor",
+    "quality_assessment": {
+      "file_type": "image",
+      "file_size": 8126540,
+      "readable": true,
+      "quality_score": 1.0,
+      "issues": [],
+      "dimensions": [
+        2816,
+        1536
+      ],
+      "mode": "RGBA"
+    },
+    "detected_language": "Hindi",
+    "detected_language_code": "hin",
+    "extraction_method": "ocr",
+    "ocr_engine": "tesseract+easyocr",
+    "available_languages": [
+      "eng",
+      "guj",
+      "hin",
+      "osd"
+    ],
+    "easyocr_available": true,
+    "img2table_available": true,
+    "num_pages": 1,
+    "dimensions": [
+      2816,
+      1536
+    ],
+    "mode": "RGBA"
+  },
+  "text": {
+    "raw": "[Language: Hindi, OCR Confidence: 78.0%, Engine: tesseract]\n\nहै\n\nPay\n\nभारतीय स्टेट बैंक\n\nशाखा: मुख्य शाखा, इंदौर\n\nखाताधारक का नाम: श्रीमती सुनीता देवी\n\nમં\n\n|\n\nखाता AAT: 31234567890\n\n|\n\nIFSC कोड: SBINO000123\n\nदिनांक\n\n25000\n\n---ક\n\n07-02-26 | एटीएम नकद निकासी\n\n5000 / ४:\n\n<<\n\n४ 2500\n\npt\n\npo\n\n: -\n\n|\n\nअंतिम शेष\n\n૮1\n\n__\n\nMy\n",
+    "length": 319,
+    "word_count": 55
+  },
+  "tables": [],
+  "extraction_log": [
+    "Step 1: Preprocessing and quality assessment",
+    "File type detected: image",
+    "Quality score: 1.0",
+    "Step 2: Selecting extractor",
+    "Using OCR extractor (image)",
+    "Step 3: Extracting text content",
+    "Extracted 319 characters, 55 words",
+    "Detected language: Hindi",
+    "Step 4: Extracting metadata",
+    "Step 5: Extracting tables",
+    "Found 0 tables",
+    "Step 6: AI document classification",
+    "Classified as: bank_statement (confidence: 0.95)",
+    "Step 7: Extracting structured data for bank_statement",
+    "Structured extraction complete (confidence: 1.0)",
+    "Step 8: Extraction complete in 30.38 seconds",
+    "Step 8: Saving results to: 20260220_011255_Gemini_Generated_Image_ahptfpahptfpahpt",
+    "Step 9: Exporting to multiple formats",
+    "  ✓ CSV: extraction.csv",
+    "  ✓ Excel: extraction.xlsx",
+    "  ✓ HTML: extraction.html"
+  ],
+  "classification": {
+    "document_type": "bank_statement",
+    "confidence": 0.95,
+    "reasoning": "The document excerpt contains details typical of a bank statement, including the bank name (भारतीय स्टेट बैंक), branch information, account holder's name, account number, IFSC code, transaction details (एटीएम नकद निकासी), and balance information (अंतिम शेष). These elements are characteristic of a bank passbook or account statement.",
+    "alternative_type": null
+  },
+  "structured_data": {
+    "bank_name": "भारतीय स्टेट बैंक",
+    "branch_name": "मुख्य शाखा, इंदौर",
+    "account_holder": "श्रीमती सुनीता देवी",
+    "account_number": "31234567890",
+    "ifsc_code": "SBIN0000123",
+    "account_type": null,
+    "statement_period": {
+      "from_date": null,
+      "to_date": null
+    },
+    "opening_balance": 25000,
+    "closing_balance": 20000,
+    "currency": "INR",
+    "transactions": [
+      {
+        "date": "2026-02-07",
+        "description": "एटीएम नकद निकासी",
+        "debit": 5000,
+        "credit": null,
+        "balance": 20000
+      }
+    ]
+  },
+  "extraction_confidence": 1.0,
+  "comprehensive_confidence": {
+    "overall_confidence": 0.917,
+    "metrics": {
+      "schema_completeness": 1.0,
+      "data_quality": 0.75,
+      "field_confidence": 0.9,
+      "consistency": 1.0,
+      "ocr_quality": 1.0
+    },
+    "grade": "A",
+    "explanations": [
+      "✅ All required fields are present",
+      "⚠️ Some fields have missing or invalid data"
+    ],
+    "recommendations": [
+      "Manually verify and correct invalid or missing field values"
+    ]
+  },
+  "output_file": "C:\\Users\\AnshTrivedi\\OneDrive - ProductSquads Technolabs LLP\\Documents\\ADIVA\\outputs\\extracted\\20260220_011255_Gemini_Generated_Image_ahptfpahptfpahpt\\extraction.json",
+  "extraction_folder": "C:\\Users\\AnshTrivedi\\OneDrive - ProductSquads Technolabs LLP\\Documents\\ADIVA\\outputs\\extracted\\20260220_011255_Gemini_Generated_Image_ahptfpahptfpahpt",
+  "exports": {
+    "csv": "C:\\Users\\AnshTrivedi\\OneDrive - ProductSquads Technolabs LLP\\Documents\\ADIVA\\outputs\\extracted\\20260220_011255_Gemini_Generated_Image_ahptfpahptfpahpt\\extraction.csv",
+    "excel": "C:\\Users\\AnshTrivedi\\OneDrive - ProductSquads Technolabs LLP\\Documents\\ADIVA\\outputs\\extracted\\20260220_011255_Gemini_Generated_Image_ahptfpahptfpahpt\\extraction.xlsx",
+    "html": "C:\\Users\\AnshTrivedi\\OneDrive - ProductSquads Technolabs LLP\\Documents\\ADIVA\\outputs\\extracted\\20260220_011255_Gemini_Generated_Image_ahptfpahptfpahpt\\extraction.html"
+  }
+}

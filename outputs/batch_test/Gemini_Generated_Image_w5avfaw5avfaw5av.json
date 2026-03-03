@@ -1,0 +1,133 @@
+{
+  "status": "success",
+  "metadata": {
+    "filename": "Gemini_Generated_Image_w5avfaw5avfaw5av.png",
+    "file_path": "test_images\\Gemini_Generated_Image_w5avfaw5avfaw5av.png",
+    "file_size_bytes": 8050133,
+    "file_type": "image",
+    "processed_at": "2026-02-20 01:24:55",
+    "processing_time_seconds": 24.35,
+    "extractor_used": "OCRExtractor",
+    "quality_assessment": {
+      "file_type": "image",
+      "file_size": 8050133,
+      "readable": true,
+      "quality_score": 1.0,
+      "issues": [],
+      "dimensions": [
+        2816,
+        1536
+      ],
+      "mode": "RGBA"
+    },
+    "detected_language": "Hindi",
+    "detected_language_code": "hin",
+    "extraction_method": "ocr",
+    "ocr_engine": "tesseract+easyocr",
+    "available_languages": [
+      "eng",
+      "guj",
+      "hin",
+      "osd"
+    ],
+    "easyocr_available": true,
+    "img2table_available": true,
+    "num_pages": 1,
+    "dimensions": [
+      2816,
+      1536
+    ],
+    "mode": "RGBA"
+  },
+  "text": {
+    "raw": "[Language: Hindi, OCR Confidence: 88.6%, Engine: tesseract]\n\n|\n|\n\nउपभोक्ता नाम: रमेश कुमार | a\nउपभोक्ता संख्या: 1234567890 oo\nमीटर संख्या: UPPCL-98765 ह\n\nપતા: 45-ए, गांधी नगर, लखनऊ, उत्तर प्रदेश - 226001!\n\nपिछली ae\n350 |\n\n|\n\nदेय तिथि: 10 मार्च 2026\nदेय तिथि के बाद भुगतान पर विलंब शुल्क लागू होगा।\n\nपेयमानी आपालाक: ऑनलाइन भुगतान, बैंक काउंटर, चेक, ड्राफ्ट\n\n",
+    "length": 357,
+    "word_count": 60
+  },
+  "tables": [],
+  "extraction_log": [
+    "Step 1: Preprocessing and quality assessment",
+    "File type detected: image",
+    "Quality score: 1.0",
+    "Step 2: Selecting extractor",
+    "Using OCR extractor (image)",
+    "Step 3: Extracting text content",
+    "Extracted 357 characters, 60 words",
+    "Detected language: Hindi",
+    "Step 4: Extracting metadata",
+    "Step 5: Extracting tables",
+    "Found 0 tables",
+    "Step 6: AI document classification",
+    "Classified as: utility_bill (confidence: 0.98)",
+    "Step 7: Extracting structured data for utility_bill",
+    "Structured extraction complete (confidence: 0.6)",
+    "Step 8: Extraction complete in 24.35 seconds",
+    "Step 8: Saving results to: 20260220_012455_Gemini_Generated_Image_w5avfaw5avfaw5av",
+    "Step 9: Exporting to multiple formats",
+    "  ✓ CSV: extraction.csv",
+    "  ✓ Excel: extraction.xlsx",
+    "  ✓ HTML: extraction.html"
+  ],
+  "classification": {
+    "document_type": "utility_bill",
+    "confidence": 0.98,
+    "reasoning": "The document excerpt contains key details typical of a utility bill, such as consumer name, consumer number, meter number, address, billing details, due date, and payment instructions. The mention of 'विलंब शुल्क' (late fee) and payment modes further supports this classification.",
+    "alternative_type": null
+  },
+  "structured_data": {
+    "bill_type": "Electricity",
+    "provider_name": null,
+    "consumer_name": "रमेश कुमार",
+    "consumer_number": "1234567890",
+    "meter_number": "UPPCL-98765",
+    "billing_address": "45-ए, गांधी नगर, लखनऊ, उत्तर प्रदेश - 226001",
+    "billing_period": null,
+    "bill_date": null,
+    "due_date": "2026-03-10",
+    "previous_reading": 350,
+    "current_reading": null,
+    "units_consumed": null,
+    "charges": {
+      "energy_charge": null,
+      "fixed_charge": null,
+      "taxes": null,
+      "other_charges": null
+    },
+    "total_amount": null,
+    "currency": "INR",
+    "payment_options": [
+      "ऑनलाइन भुगतान",
+      "बैंक काउंटर",
+      "चेक",
+      "ड्राफ्ट"
+    ],
+    "late_payment_surcharge": "देय तिथि के बाद भुगतान पर विलंब शुल्क लागू होगा"
+  },
+  "extraction_confidence": 0.6,
+  "comprehensive_confidence": {
+    "overall_confidence": 0.715,
+    "metrics": {
+      "schema_completeness": 0.6,
+      "data_quality": 0.5,
+      "field_confidence": 0.9,
+      "consistency": 1.0,
+      "ocr_quality": 1.0
+    },
+    "grade": "C",
+    "explanations": [
+      "⚠️ 40% of required fields are missing",
+      "⚠️ Some fields have missing or invalid data"
+    ],
+    "recommendations": [
+      "Review document to fill in missing required fields",
+      "Manually verify and correct invalid or missing field values"
+    ]
+  },
+  "output_file": "C:\\Users\\AnshTrivedi\\OneDrive - ProductSquads Technolabs LLP\\Documents\\ADIVA\\outputs\\extracted\\20260220_012455_Gemini_Generated_Image_w5avfaw5avfaw5av\\extraction.json",
+  "extraction_folder": "C:\\Users\\AnshTrivedi\\OneDrive - ProductSquads Technolabs LLP\\Documents\\ADIVA\\outputs\\extracted\\20260220_012455_Gemini_Generated_Image_w5avfaw5avfaw5av",
+  "exports": {
+    "csv": "C:\\Users\\AnshTrivedi\\OneDrive - ProductSquads Technolabs LLP\\Documents\\ADIVA\\outputs\\extracted\\20260220_012455_Gemini_Generated_Image_w5avfaw5avfaw5av\\extraction.csv",
+    "excel": "C:\\Users\\AnshTrivedi\\OneDrive - ProductSquads Technolabs LLP\\Documents\\ADIVA\\outputs\\extracted\\20260220_012455_Gemini_Generated_Image_w5avfaw5avfaw5av\\extraction.xlsx",
+    "html": "C:\\Users\\AnshTrivedi\\OneDrive - ProductSquads Technolabs LLP\\Documents\\ADIVA\\outputs\\extracted\\20260220_012455_Gemini_Generated_Image_w5avfaw5avfaw5av\\extraction.html"
+  }
+}

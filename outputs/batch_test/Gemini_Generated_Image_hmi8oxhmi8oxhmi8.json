@@ -1,0 +1,27 @@
+{
+  "status": "error",
+  "error": "unsupported operand type(s) for +: 'int' and 'NoneType'",
+  "metadata": {
+    "filename": "Gemini_Generated_Image_hmi8oxhmi8oxhmi8.png",
+    "processed_at": "2026-02-20 01:14:22",
+    "processing_time_seconds": 58.45
+  },
+  "extraction_log": [
+    "Step 1: Preprocessing and quality assessment",
+    "File type detected: image",
+    "Quality score: 1.0",
+    "Step 2: Selecting extractor",
+    "Using OCR extractor (image)",
+    "Step 3: Extracting text content",
+    "Extracted 813 characters, 134 words",
+    "Detected language: Hindi",
+    "Step 4: Extracting metadata",
+    "Step 5: Extracting tables",
+    "Found 0 tables",
+    "Step 6: AI document classification",
+    "Classified as: invoice (confidence: 0.98)",
+    "Step 7: Extracting structured data for invoice",
+    "Structured extraction complete (confidence: 1.0)",
+    "Step 8: Extraction complete in 58.45 seconds"
+  ]
+}

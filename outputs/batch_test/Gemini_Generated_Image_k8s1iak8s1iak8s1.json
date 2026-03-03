@@ -1,0 +1,135 @@
+{
+  "status": "success",
+  "metadata": {
+    "filename": "Gemini_Generated_Image_k8s1iak8s1iak8s1.png",
+    "file_path": "test_images\\Gemini_Generated_Image_k8s1iak8s1iak8s1.png",
+    "file_size_bytes": 8356867,
+    "file_type": "image",
+    "processed_at": "2026-02-20 01:14:52",
+    "processing_time_seconds": 29.84,
+    "extractor_used": "OCRExtractor",
+    "quality_assessment": {
+      "file_type": "image",
+      "file_size": 8356867,
+      "readable": true,
+      "quality_score": 1.0,
+      "issues": [],
+      "dimensions": [
+        2816,
+        1536
+      ],
+      "mode": "RGBA"
+    },
+    "detected_language": "Gujarati",
+    "detected_language_code": "guj",
+    "extraction_method": "ocr",
+    "ocr_engine": "tesseract+easyocr",
+    "available_languages": [
+      "eng",
+      "guj",
+      "hin",
+      "osd"
+    ],
+    "easyocr_available": true,
+    "img2table_available": true,
+    "num_pages": 1,
+    "dimensions": [
+      2816,
+      1536
+    ],
+    "mode": "RGBA"
+  },
+  "text": {
+    "raw": "[Language: Gujarati, OCR Confidence: 90.1%, Engine: tesseract]\n\nકર ભરપાઈ\n\nશ્રી ગણેશ ટ્રેડર્સ, સુરત\n\nઈન્વોઈસ નંબર: GT/2025-26/001\n\nતારીખઃ ૧૯ ફેબ્રુઆરી २०२६\n\nચુકવણી તારીખ: ou માર્ચ २०२६\n\nવેચનારનું સરનામું: ૧૦૧, રિંગ રોડ, સુરત - ૩૯૫૦૦૨, ગુજરાત\n\n૦૩11૫: 24ABCDE1234F1Z5\n\nખરીદનારનું નામ: શાહ એન્ટરપ્રાઈઝ\n\nસરનામુ: UO, આશ્રમ રાડ, અમદાવાદ - ૩૮૦૦૦૯, ગુજરાત\n\nક્ર્મ\n\n૧\n\nર\n\n3\n\n¥\n\nપ\n\nશબ્દોમાં: ચોંતેર હજાર આઠસો રૂપિયા માત્ર\n\nલ સરવાળોઃ\n\nસહી અને Assi:\n\nબેંક વિગતો: બેંકનું નામ: સ્ટેટ બેંક ઓફ ઈન્ડિયા, શાખા: સુરત, ખાતા નંબર: ૧૨૩૪૫૬૭૮૯૦, IFSC: 501૫0001234\n\n|\n",
+    "length": 541,
+    "word_count": 81
+  },
+  "tables": [],
+  "extraction_log": [
+    "Step 1: Preprocessing and quality assessment",
+    "File type detected: image",
+    "Quality score: 1.0",
+    "Step 2: Selecting extractor",
+    "Using OCR extractor (image)",
+    "Step 3: Extracting text content",
+    "Extracted 541 characters, 81 words",
+    "Detected language: Gujarati",
+    "Step 4: Extracting metadata",
+    "Step 5: Extracting tables",
+    "Found 0 tables",
+    "Step 6: AI document classification",
+    "Classified as: invoice (confidence: 0.98)",
+    "Step 7: Extracting structured data for invoice",
+    "Structured extraction complete (confidence: 1.0)",
+    "Step 8: Extraction complete in 29.84 seconds",
+    "Step 8: Saving results to: 20260220_011452_Gemini_Generated_Image_k8s1iak8s1iak8s1",
+    "Step 9: Exporting to multiple formats",
+    "  ✓ CSV: extraction.csv",
+    "  ✓ Excel: extraction.xlsx",
+    "  ✓ HTML: extraction.html"
+  ],
+  "classification": {
+    "document_type": "invoice",
+    "confidence": 0.98,
+    "reasoning": "The document excerpt contains key elements of a tax invoice, such as invoice number, seller and buyer details, GSTIN, payment terms, itemized charges (though partially obscured), total amount in words, and bank details for payment. The presence of 'કર ભરપાઈ' (tax payment) further confirms it is a GST-related invoice.",
+    "alternative_type": null
+  },
+  "structured_data": {
+    "invoice_number": "GT/2025-26/001",
+    "invoice_date": "2026-02-19",
+    "due_date": "2026-03-10",
+    "vendor": {
+      "name": "શ્રી ગણેશ ટ્રેડર્સ",
+      "address": "૧૦૧, રિંગ રોડ, સુરત - ૩૯૫૦૦૨, ગુજરાત",
+      "email": null,
+      "phone": null
+    },
+    "customer": {
+      "name": "શાહ એન્ટરપ્રાઈઝ",
+      "address": "UO, આશ્રમ રાડ, અમદાવાદ - ૩૮૦૦૦૯, ગુજરાત",
+      "email": null,
+      "phone": null
+    },
+    "line_items": [
+      {
+        "description": null,
+        "quantity": null,
+        "unit_price": null,
+        "total": 74800.0
+      }
+    ],
+    "subtotal": 74800.0,
+    "tax": null,
+    "tax_rate": null,
+    "total": 74800.0,
+    "currency": "INR",
+    "payment_terms": null,
+    "notes": "બેંક વિગતો: બેંકનું નામ: સ્ટેટ બેંક ઓફ ઈન્ડિયા, શાખા: સુરત, ખાતા નંબર: ૧૨૩૪૫૬૭૮૯૦, IFSC: SBIN0001234"
+  },
+  "extraction_confidence": 1.0,
+  "comprehensive_confidence": {
+    "overall_confidence": 0.888,
+    "metrics": {
+      "schema_completeness": 1.0,
+      "data_quality": 0.632,
+      "field_confidence": 0.9,
+      "consistency": 1.0,
+      "ocr_quality": 1.0
+    },
+    "grade": "B+",
+    "explanations": [
+      "✅ All required fields are present",
+      "⚠️ Some fields have missing or invalid data"
+    ],
+    "recommendations": [
+      "Manually verify and correct invalid or missing field values"
+    ]
+  },
+  "output_file": "C:\\Users\\AnshTrivedi\\OneDrive - ProductSquads Technolabs LLP\\Documents\\ADIVA\\outputs\\extracted\\20260220_011452_Gemini_Generated_Image_k8s1iak8s1iak8s1\\extraction.json",
+  "extraction_folder": "C:\\Users\\AnshTrivedi\\OneDrive - ProductSquads Technolabs LLP\\Documents\\ADIVA\\outputs\\extracted\\20260220_011452_Gemini_Generated_Image_k8s1iak8s1iak8s1",
+  "exports": {
+    "csv": "C:\\Users\\AnshTrivedi\\OneDrive - ProductSquads Technolabs LLP\\Documents\\ADIVA\\outputs\\extracted\\20260220_011452_Gemini_Generated_Image_k8s1iak8s1iak8s1\\extraction.csv",
+    "excel": "C:\\Users\\AnshTrivedi\\OneDrive - ProductSquads Technolabs LLP\\Documents\\ADIVA\\outputs\\extracted\\20260220_011452_Gemini_Generated_Image_k8s1iak8s1iak8s1\\extraction.xlsx",
+    "html": "C:\\Users\\AnshTrivedi\\OneDrive - ProductSquads Technolabs LLP\\Documents\\ADIVA\\outputs\\extracted\\20260220_011452_Gemini_Generated_Image_k8s1iak8s1iak8s1\\extraction.html"
+  }
+}

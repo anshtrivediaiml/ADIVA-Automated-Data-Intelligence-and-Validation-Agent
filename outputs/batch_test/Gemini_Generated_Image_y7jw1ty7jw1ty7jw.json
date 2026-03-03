@@ -1,0 +1,154 @@
+{
+  "status": "success",
+  "metadata": {
+    "filename": "Gemini_Generated_Image_y7jw1ty7jw1ty7jw.png",
+    "file_path": "test_images\\Gemini_Generated_Image_y7jw1ty7jw1ty7jw.png",
+    "file_size_bytes": 8554774,
+    "file_type": "image",
+    "processed_at": "2026-02-20 01:25:24",
+    "processing_time_seconds": 29.0,
+    "extractor_used": "OCRExtractor",
+    "quality_assessment": {
+      "file_type": "image",
+      "file_size": 8554774,
+      "readable": true,
+      "quality_score": 1.0,
+      "issues": [],
+      "dimensions": [
+        2816,
+        1536
+      ],
+      "mode": "RGBA"
+    },
+    "detected_language": "Hindi",
+    "detected_language_code": "hin",
+    "extraction_method": "ocr",
+    "ocr_engine": "tesseract+easyocr",
+    "available_languages": [
+      "eng",
+      "guj",
+      "hin",
+      "osd"
+    ],
+    "easyocr_available": true,
+    "img2table_available": true,
+    "num_pages": 1,
+    "dimensions": [
+      2816,
+      1536
+    ],
+    "mode": "RGBA"
+  },
+  "text": {
+    "raw": "[Language: Hindi, OCR Confidence: 75.9%, Engine: tesseract]\n\nose\n\n“eT\n\n Oa\n\na\n\nKEES प्रदेश सरकार --\n\nका एवं रसद विभाग\n\nजा\n\n|\n\nQi\n\nછે\n\n)\n\nVR कार्ड\n\nकार्ड संख्या: 214567890123\n\nकार्ड प्रकार: अंत्योदय\n\n|\n\nमुखिया का नाम: राम प्रकाश\n\nपिता/पति का नाम: श्याम लाल\n\nपता: ग्राम-बिशनपुर, पोस्ट-सदर, जिला-लखनऊ, पिन-226001\n\nनाम\n\nae | क्र.सं. |\n\n1.\n\n2.\n\n3.\n\n4.\n\n5.\n\nहे\n\nराशन दुकान विवरण\n\nરી\n\nजिला पूर्ति\n\nदुकानदार का नाम: सुरेश चंद\n\nअधिकारी\n\n| \\\n\nदुकान सख्या: 12345\n\nजारीकर्ता प्राधिकारी हस्ताक्षर\n\nTRAM\n\neee eran\n\nN\n\n~\n\n દૃ\n\nન,\n",
+    "length": 515,
+    "word_count": 86
+  },
+  "tables": [],
+  "extraction_log": [
+    "Step 1: Preprocessing and quality assessment",
+    "File type detected: image",
+    "Quality score: 1.0",
+    "Step 2: Selecting extractor",
+    "Using OCR extractor (image)",
+    "Step 3: Extracting text content",
+    "Extracted 515 characters, 86 words",
+    "Detected language: Hindi",
+    "Step 4: Extracting metadata",
+    "Step 5: Extracting tables",
+    "Found 0 tables",
+    "Step 6: AI document classification",
+    "Classified as: ration_card (confidence: 0.98)",
+    "Step 7: Extracting structured data for ration_card",
+    "Structured extraction complete (confidence: 1.0)",
+    "Step 8: Extraction complete in 29.00 seconds",
+    "Step 8: Saving results to: 20260220_012524_Gemini_Generated_Image_y7jw1ty7jw1ty7jw",
+    "Step 9: Exporting to multiple formats",
+    "  ✓ CSV: extraction.csv",
+    "  ✓ Excel: extraction.xlsx",
+    "  ✓ HTML: extraction.html"
+  ],
+  "classification": {
+    "document_type": "ration_card",
+    "confidence": 0.98,
+    "reasoning": "The document excerpt contains details typical of a government ration card, including card number, card type (अंत्योदय), family member names, address, ration shop details, and issuing authority. These elements are characteristic of a ration card document.",
+    "alternative_type": null
+  },
+  "structured_data": {
+    "card_type": "Antyodaya",
+    "card_number": "214567890123",
+    "issuing_state": "Uttar Pradesh",
+    "issuing_department": "खाद्य एवं रसद विभाग",
+    "head_of_family": {
+      "name": "राम प्रकाश",
+      "father_husband_name": "श्याम लाल",
+      "address": "ग्राम-बिशनपुर, पोस्ट-सदर, जिला-लखनऊ, पिन-226001",
+      "district": "लखनऊ",
+      "pin_code": "226001"
+    },
+    "family_members": [
+      {
+        "serial_number": 1,
+        "name": "राम प्रकाश",
+        "age": null,
+        "relation": "स्वयं"
+      },
+      {
+        "serial_number": 2,
+        "name": null,
+        "age": null,
+        "relation": null
+      },
+      {
+        "serial_number": 3,
+        "name": null,
+        "age": null,
+        "relation": null
+      },
+      {
+        "serial_number": 4,
+        "name": null,
+        "age": null,
+        "relation": null
+      },
+      {
+        "serial_number": 5,
+        "name": null,
+        "age": null,
+        "relation": null
+      }
+    ],
+    "ration_shop": {
+      "dealer_name": "सुरेश चंद",
+      "shop_number": "12345"
+    },
+    "issue_date": null,
+    "valid_until": null
+  },
+  "extraction_confidence": 1.0,
+  "comprehensive_confidence": {
+    "overall_confidence": 0.944,
+    "metrics": {
+      "schema_completeness": 1.0,
+      "data_quality": 0.857,
+      "field_confidence": 0.9,
+      "consistency": 1.0,
+      "ocr_quality": 1.0
+    },
+    "grade": "A",
+    "explanations": [
+      "✅ All required fields are present",
+      "✅ Data quality is good"
+    ],
+    "recommendations": [
+      "✅ Extraction quality is excellent!"
+    ]
+  },
+  "output_file": "C:\\Users\\AnshTrivedi\\OneDrive - ProductSquads Technolabs LLP\\Documents\\ADIVA\\outputs\\extracted\\20260220_012524_Gemini_Generated_Image_y7jw1ty7jw1ty7jw\\extraction.json",
+  "extraction_folder": "C:\\Users\\AnshTrivedi\\OneDrive - ProductSquads Technolabs LLP\\Documents\\ADIVA\\outputs\\extracted\\20260220_012524_Gemini_Generated_Image_y7jw1ty7jw1ty7jw",
+  "exports": {
+    "csv": "C:\\Users\\AnshTrivedi\\OneDrive - ProductSquads Technolabs LLP\\Documents\\ADIVA\\outputs\\extracted\\20260220_012524_Gemini_Generated_Image_y7jw1ty7jw1ty7jw\\extraction.csv",
+    "excel": "C:\\Users\\AnshTrivedi\\OneDrive - ProductSquads Technolabs LLP\\Documents\\ADIVA\\outputs\\extracted\\20260220_012524_Gemini_Generated_Image_y7jw1ty7jw1ty7jw\\extraction.xlsx",
+    "html": "C:\\Users\\AnshTrivedi\\OneDrive - ProductSquads Technolabs LLP\\Documents\\ADIVA\\outputs\\extracted\\20260220_012524_Gemini_Generated_Image_y7jw1ty7jw1ty7jw\\extraction.html"
+  }
+}

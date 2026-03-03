@@ -22,6 +22,7 @@ load_dotenv()
 MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
 PROJECT_NAME = os.getenv("PROJECT_NAME", "ADIVA")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 # ========================
 # JWT Authentication
@@ -37,21 +38,15 @@ JWT_ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_ACCESS_TOKEN_EXPIRE_MINUTES
 JWT_REFRESH_TOKEN_EXPIRE_DAYS   = int(os.getenv("JWT_REFRESH_TOKEN_EXPIRE_DAYS", "7"))
 
 # ========================
-# Hardcoded Users
+# Admin Seed (optional)
 # ========================
-# Passwords are bcrypt-hashed. Default plaintext: adiva@2026
-# To generate a new hash: from passlib.context import CryptContext; CryptContext(['bcrypt']).hash('yourpassword')
-
-HARDCODED_USERS = [
-    {
-        "username": "anshtrivedi",
-        "name": "Ansh Trivedi",
-        "email": "ansh@adiva.ai",
-        "role": "admin",
-        # bcrypt hash of: adiva@2026
-        "hashed_password": "$2b$12$QomktBtHiAp1njTofHaCoeDNHYxyAKpUZEA7RrGaUl5qFGKtTgTIe",
-    },
-]
+# Used by backend/db/seed_admin.py
+ADMIN_EMAIL = os.getenv("ADMIN_EMAIL")
+ADMIN_NAME = os.getenv("ADMIN_NAME", "Admin")
+ADMIN_USERNAME = os.getenv("ADMIN_USERNAME")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
+ADMIN_ROLE = os.getenv("ADMIN_ROLE", "admin")
+ADMIN_DELETE_EMAILS = os.getenv("ADMIN_DELETE_EMAILS")
 
 # ========================
 # Project Paths
@@ -78,8 +73,14 @@ for directory in [EXTRACTED_DIR, VALIDATED_DIR, LOGS_DIR, SAMPLES_DIR]:
 # File Upload Settings
 # ========================
 
-MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
-ALLOWED_EXTENSIONS = {".pdf", ".docx"}
+# Max file size in bytes (default: 200 MB)
+MAX_FILE_SIZE = int(os.getenv("MAX_FILE_SIZE", str(200 * 1024 * 1024)))
+
+# Allowed file extensions
+ALLOWED_EXTENSIONS = {".pdf", ".docx", ".png", ".jpg", ".jpeg", ".tiff", ".bmp"}
+
+# Streamed upload chunk size (bytes)
+UPLOAD_CHUNK_SIZE = int(os.getenv("UPLOAD_CHUNK_SIZE", str(1024 * 1024)))
 
 # ========================
 # API Settings
@@ -117,6 +118,8 @@ def validate_config():
     
     if not MISTRAL_API_KEY:
         errors.append("MISTRAL_API_KEY is not set in environment variables")
+    if not DATABASE_URL:
+        errors.append("DATABASE_URL is not set in environment variables")
     
     if errors:
         raise ValueError(

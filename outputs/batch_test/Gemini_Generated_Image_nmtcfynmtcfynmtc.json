@@ -1,0 +1,188 @@
+{
+  "status": "success",
+  "metadata": {
+    "filename": "Gemini_Generated_Image_nmtcfynmtcfynmtc.png",
+    "file_path": "test_images\\Gemini_Generated_Image_nmtcfynmtcfynmtc.png",
+    "file_size_bytes": 8948559,
+    "file_type": "image",
+    "processed_at": "2026-02-20 01:20:03",
+    "processing_time_seconds": 310.69,
+    "extractor_used": "OCRExtractor",
+    "quality_assessment": {
+      "file_type": "image",
+      "file_size": 8948559,
+      "readable": true,
+      "quality_score": 1.0,
+      "issues": [],
+      "dimensions": [
+        2816,
+        1536
+      ],
+      "mode": "RGBA"
+    },
+    "detected_language": "Gujarati",
+    "detected_language_code": "guj",
+    "extraction_method": "ocr",
+    "ocr_engine": "tesseract+easyocr",
+    "available_languages": [
+      "eng",
+      "guj",
+      "hin",
+      "osd"
+    ],
+    "easyocr_available": true,
+    "img2table_available": true,
+    "num_pages": 1,
+    "dimensions": [
+      2816,
+      1536
+    ],
+    "mode": "RGBA"
+  },
+  "text": {
+    "raw": "[Language: Gujarati, OCR Confidence: 52.9%, Engine: tesseract]\n\nछट02ट/ट0/651 :ઝણછત\n\nj=\" “3૪2૪211૯ ‘eins\n‘SZOZ/PETL “ON “60H - VIGNI AO LAOD\n\nAUVLON\n\n(Rileare bre RIS)” =.) OtC~C~S = 7 (aanzeusis) \"સટ\n\nछः हैं ~ ૨ <\nfe thy \\ ~~ (Riloate bre Rilo) STS anges) *७\nWr છ : 1 “----------------૯(૭૩4ળ૩ણપ૩1૬) (PSI\nક જ. (a4nzeu3is) *કાઝા।્રાગાકાર\nseo . ~ \"63 [2S Le[PR 2h ટાસ્ક [he [RPI bbe [RU2MG@le kel2isizh ૪૦ ke [lhe\n\n૧.\n\nae ७२० ।ગાટ્કઝસ્ઇ [phike Rejilo ।ગત1છ [oRbH3) (RUC) ०६ [P RIP [bes 32 ટાસ્ક Wh lahpls \"૦\n\"IPP (કાટ BS 2ich [2% PinJb [PSHJIRPISR 2182S है રાસાક ॥બ્ટાકા૬ lAnBIS IRISH \"૩\n\"०७८ 1૦ાગ્ટામે OVP 1211२ PSibd 199] Ric lke Ply [05७७7 “h\nहु ‘222 Pibbsie PSild 1>००२०र SRIk P[2RIRIR \"2\n' ‘ede KIhIbWR\nP2h 2ich ileo ૨ ‘@ ॥ટ્ગ્કોટ PSSPJIRPISK (2h 21> धयाजान IRhjJf Ske) ०००२० 2 ર 2ध्टाएप5] [2alkRSR) PSIW “૬\n\n\"ઢફ્ટ Pippsie IDPH गला? h [1૦1૦૨] 23 રુ ૯૩ Polke Ini bes [55० (ટૉપ 2129 allo IrRhj€ Ske) ०००८७ 2 5190 SRJIR \"ટ\n\"late છાટ [2 S20%/Co/vo M[2IP ૨ “ફેટ [1૦1૦૨] (ટાટાત] ટ) ७७ P3R [pozlas Ihe “પ\n\n\"Pele\nt\n‘pa ‘siz 1059151127191 ‘[RSRJ2 Pils (hke-29b9) 2he) 23 Ralie ૦૦૯૪ ‘Wik [25 “८०४ 1० 2pS\n\ni 7Plab PRyhr\n\n* /\n“ગરસશ્ગરે ‘DOOHDE - [ગ્સાસે વાટર] lAVISHe “2૦૪રટાપ્ઇટ Sih bY “h ચસાઝશ્ટ “શાક “રા 31०० टुटि [8 :0છાપ LLP) 751\n\"ગર્સ્ક્ગટ ‘Soohde - Pa “કાટ 1636० ‘[2RIRIR ૩॥ગ્‌1માનટ “८७ ચસાગ્કફેટ ‘Heh “ફ ઝા મટારટ [1૪ (85 RK) કાઝા।ારાગાકાર\nશૂટાકારાપ\n\n\"૯૩ LRolke IkIb2S RISK Peake કાટ Ilo S202 [ટ્રાન્ટ્છિફે Db NIP Vike ટાસ્ક 15119 Ike\n\nSles Sit\n\nઆ\n\n2220\n22088\n૨\n\nજ ey\né\n\nOy\nit\n\n\\\n\nSS\n\n",
+    "length": 1482,
+    "word_count": 269
+  },
+  "tables": [],
+  "extraction_log": [
+    "Step 1: Preprocessing and quality assessment",
+    "File type detected: image",
+    "Quality score: 1.0",
+    "Step 2: Selecting extractor",
+    "Using OCR extractor (image)",
+    "Step 3: Extracting text content",
+    "Extracted 1482 characters, 269 words",
+    "Detected language: Gujarati",
+    "Step 4: Extracting metadata",
+    "Step 5: Extracting tables",
+    "Found 0 tables",
+    "Step 6: AI document classification",
+    "Classified as: prescription (confidence: 0.85)",
+    "Step 7: Extracting structured data for prescription",
+    "Structured extraction complete (confidence: 0.25)",
+    "Step 8: Extraction complete in 310.69 seconds",
+    "Step 8: Saving results to: 20260220_012003_Gemini_Generated_Image_nmtcfynmtcfynmtc",
+    "Step 9: Exporting to multiple formats",
+    "  ✓ CSV: extraction.csv",
+    "  ✓ Excel: extraction.xlsx",
+    "  ✓ HTML: extraction.html"
+  ],
+  "classification": {
+    "document_type": "prescription",
+    "confidence": 0.85,
+    "reasoning": "The document excerpt contains several elements typical of a medical prescription, including fragmented references to medicine names (e.g., 'PETL', 'VIGNI AO LAOD'), dosage-related terms (e.g., numbers like '222', '10102'), and medical abbreviations. The Gujarati text also appears to include medical instructions or notes, which align with prescription characteristics. The OCR errors and mixed language further suggest a handwritten or scanned prescription, which often have lower OCR confidence.",
+    "alternative_type": "form"
+  },
+  "structured_data": {
+    "doctor_name": null,
+    "doctor_qualifications": null,
+    "clinic_name": null,
+    "clinic_address": null,
+    "clinic_phone": null,
+    "patient_name": null,
+    "patient_age": null,
+    "patient_gender": null,
+    "date": null,
+    "medicines": [
+      {
+        "name": "AUVLON",
+        "dosage": null,
+        "frequency": "સવારે-બપોરે-રાત્રે",
+        "duration": "7 દિવસ",
+        "instructions": "(Rileare bre RIS) (aanzeusis)"
+      },
+      {
+        "name": "Riloate bre Rilo",
+        "dosage": null,
+        "frequency": "સવારે-બપોરે-રાત્રે",
+        "duration": "7 દિવસ",
+        "instructions": "(STS anges)"
+      },
+      {
+        "name": null,
+        "dosage": "250mg",
+        "frequency": "બે વખત દિવસમાં",
+        "duration": "5 દિવસ",
+        "instructions": null
+      },
+      {
+        "name": "Rejilo",
+        "dosage": null,
+        "frequency": "બે વખત દિવસમાં",
+        "duration": "6 દિવસ",
+        "instructions": "(RUC)"
+      },
+      {
+        "name": null,
+        "dosage": "20mg",
+        "frequency": "રાત્રે",
+        "duration": "10 દિવસ",
+        "instructions": null
+      },
+      {
+        "name": null,
+        "dosage": "10mg",
+        "frequency": "સવારે",
+        "duration": "2 દિવસ",
+        "instructions": null
+      },
+      {
+        "name": null,
+        "dosage": "120mg",
+        "frequency": "બે વખત દિવસમાં",
+        "duration": "3 દિવસ",
+        "instructions": null
+      },
+      {
+        "name": "DOOHDE - [ગ્લાસ વાટર]",
+        "dosage": null,
+        "frequency": "સવારે ખાલી પેટ",
+        "duration": null,
+        "instructions": "ગરમ પાણી સાથે લેવું"
+      },
+      {
+        "name": "Soohde - Pa",
+        "dosage": "1 tsp",
+        "frequency": "રાત્રે",
+        "duration": "7 દિવસ",
+        "instructions": "ગરમ પાણી સાથે લેવું"
+      }
+    ],
+    "diagnosis": "(aanzeusis) / (STS anges) / (RUC)",
+    "instructions": [
+      "ગરમ પાણી વધારે પીવું",
+      "ખાંડ-મીઠું ઓછું લેવું",
+      "આરામ કરવો"
+    ],
+    "follow_up": null,
+    "registration_number": "છટ02ટ/ટ0/651"
+  },
+  "extraction_confidence": 0.25,
+  "comprehensive_confidence": {
+    "overall_confidence": 0.539,
+    "metrics": {
+      "schema_completeness": 0.25,
+      "data_quality": 0.286,
+      "field_confidence": 0.9,
+      "consistency": 1.0,
+      "ocr_quality": 1.0
+    },
+    "grade": "D",
+    "explanations": [
+      "⚠️ 75% of required fields are missing",
+      "⚠️ Some fields have missing or invalid data"
+    ],
+    "recommendations": [
+      "Review document to fill in missing required fields",
+      "Manually verify and correct invalid or missing field values"
+    ]
+  },
+  "output_file": "C:\\Users\\AnshTrivedi\\OneDrive - ProductSquads Technolabs LLP\\Documents\\ADIVA\\outputs\\extracted\\20260220_012003_Gemini_Generated_Image_nmtcfynmtcfynmtc\\extraction.json",
+  "extraction_folder": "C:\\Users\\AnshTrivedi\\OneDrive - ProductSquads Technolabs LLP\\Documents\\ADIVA\\outputs\\extracted\\20260220_012003_Gemini_Generated_Image_nmtcfynmtcfynmtc",
+  "exports": {
+    "csv": "C:\\Users\\AnshTrivedi\\OneDrive - ProductSquads Technolabs LLP\\Documents\\ADIVA\\outputs\\extracted\\20260220_012003_Gemini_Generated_Image_nmtcfynmtcfynmtc\\extraction.csv",
+    "excel": "C:\\Users\\AnshTrivedi\\OneDrive - ProductSquads Technolabs LLP\\Documents\\ADIVA\\outputs\\extracted\\20260220_012003_Gemini_Generated_Image_nmtcfynmtcfynmtc\\extraction.xlsx",
+    "html": "C:\\Users\\AnshTrivedi\\OneDrive - ProductSquads Technolabs LLP\\Documents\\ADIVA\\outputs\\extracted\\20260220_012003_Gemini_Generated_Image_nmtcfynmtcfynmtc\\extraction.html"
+  }
+}

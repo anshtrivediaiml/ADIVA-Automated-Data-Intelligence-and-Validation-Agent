@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 import json
 import shutil
+import uuid
 
 # Add backend to path
 backend_path = Path(__file__).parent.parent.parent
@@ -20,6 +21,9 @@ from api.models.responses import ExtractionListResponse, ExtractionListItem
 from api.middleware.auth_middleware import get_current_user
 from logger import logger
 import config
+from db.session import get_db
+from db import models
+from sqlalchemy.orm import Session
 
 router = APIRouter()
 
@@ -27,7 +31,8 @@ router = APIRouter()
 @router.get("/results/{extraction_id}")
 async def get_results(
     extraction_id: str,
-    current_user: dict = Depends(get_current_user)
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
     """
     Get extraction results by ID
@@ -39,19 +44,40 @@ async def get_results(
     Returns full extraction data including text, structured data, confidence scores, etc.
     """
     try:
-        # Find extraction folder
-        extraction_folder = config.OUTPUTS_DIR / "extracted" / extraction_id
-        json_file = extraction_folder / "extraction.json"
-        
-        if not json_file.exists():
+        try:
+            extraction_uuid = uuid.UUID(extraction_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid extraction_id")
+
+        target = (
+            db.query(models.Extraction)
+            .filter(models.Extraction.id == extraction_uuid)
+            .filter(models.Extraction.user_id == current_user.id)
+            .first()
+        )
+
+        if not target:
             raise HTTPException(status_code=404, detail=f"Extraction '{extraction_id}' not found")
-        
-        # Load and return results
-        with open(json_file, 'r', encoding='utf-8') as f:
-            results = json.load(f)
-        
+
+        # Return structured data + metadata
+        extraction_result = (
+            db.query(models.ExtractionResult)
+            .filter(models.ExtractionResult.extraction_id == target.id)
+            .first()
+        )
+
+        if not extraction_result:
+            raise HTTPException(status_code=404, detail="Extraction result not found")
+
         logger.info(f"Retrieved results for: {extraction_id}")
-        return results
+        return {
+            "extraction_id": extraction_id,
+            "document_type": extraction_result.document_type,
+            "structured_data": extraction_result.structured_data_jsonb,
+            "confidence": extraction_result.confidence_jsonb,
+            "detected_language": extraction_result.detected_language,
+            "metadata": extraction_result.metadata_jsonb,
+        }
     
     except HTTPException:
         raise
@@ -64,7 +90,8 @@ async def get_results(
 async def download_file(
     extraction_id: str,
     format: str = PathParam(..., pattern="^(json|csv|xlsx|html)$", description="File format"),
-    current_user: dict = Depends(get_current_user)
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
     """
     Download extraction file in specific format
@@ -89,11 +116,24 @@ async def download_file(
         if not ext:
             raise HTTPException(status_code=400, detail=f"Invalid format: {format}")
         
-        # Find file
-        extraction_folder = config.OUTPUTS_DIR / "extracted" / extraction_id
-        file_path = extraction_folder / f"extraction.{ext}"
-        
-        if not file_path.exists():
+        # Locate output via DB
+        try:
+            extraction_uuid = uuid.UUID(extraction_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid extraction_id")
+
+        out = (
+            db.query(models.ExtractionOutput)
+            .join(models.Extraction, models.ExtractionOutput.extraction_id == models.Extraction.id)
+            .filter(models.Extraction.user_id == current_user.id)
+            .filter(models.ExtractionOutput.extraction_id == extraction_uuid)
+            .filter(models.ExtractionOutput.format == format)
+            .first()
+        )
+
+        file_path = Path(out.storage_uri) if out and out.storage_uri else None
+
+        if not file_path or not file_path.exists():
             raise HTTPException(
                 status_code=404,
                 detail=f"File not found: extraction.{ext} in {extraction_id}"
@@ -127,7 +167,8 @@ async def list_extractions(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(20, ge=1, le=100, description="Items per page"),
     document_type: Optional[str] = Query(None, description="Filter by document type"),
-    current_user: dict = Depends(get_current_user)
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
     """
     List all extractions
@@ -141,62 +182,43 @@ async def list_extractions(
     Returns list of extractions with metadata.
     """
     try:
-        extracted_dir = config.OUTPUTS_DIR / "extracted"
-        
-        if not extracted_dir.exists():
-            return ExtractionListResponse(
-                total=0,
-                page=page,
-                page_size=page_size,
-                extractions=[]
-            )
-        
-        # Get all extraction folders
-        folders = [f for f in extracted_dir.iterdir() if f.is_dir() and not f.name.startswith('batch_')]
-        
-        # Sort by modification time (newest first)
-        folders.sort(key=lambda x: x.stat().st_mtime, reverse=True)
-        
-        # Load metadata and filter
+        query = (
+            db.query(models.Extraction, models.Document, models.ExtractionResult)
+            .join(models.Document, models.Extraction.document_id == models.Document.id, isouter=True)
+            .join(models.ExtractionResult, models.ExtractionResult.extraction_id == models.Extraction.id, isouter=True)
+            .filter(models.Extraction.user_id == current_user.id)
+        )
+
+        if document_type:
+            query = query.filter(models.ExtractionResult.document_type == document_type)
+
+        total = query.count()
+        rows = (
+            query.order_by(models.Extraction.created_at.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+            .all()
+        )
+
         extractions = []
-        for folder in folders:
-            json_file = folder / "extraction.json"
-            if not json_file.exists():
-                continue
-            
-            try:
-                with open(json_file, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                
-                # Filter by document type if specified
-                doc_type = data.get('classification', {}).get('document_type')
-                if document_type and doc_type != document_type:
-                    continue
-                
-                extractions.append(ExtractionListItem(
-                    extraction_id=folder.name,
-                    document_type=doc_type,
-                    filename=data.get('metadata', {}).get('filename', 'unknown'),
-                    processed_at=data.get('metadata', {}).get('processed_at', ''),
-                    confidence=data.get('comprehensive_confidence', {}).get('overall_confidence'),
-                    status=data.get('status', 'unknown')
-                ))
-            except:
-                continue
+        for extraction, document, result in rows:
+            extractions.append(ExtractionListItem(
+                extraction_id=str(extraction.id),
+                document_type=result.document_type if result else None,
+                filename=document.filename if document else "unknown",
+                processed_at=extraction.created_at.isoformat() if extraction.created_at else "",
+                confidence=(result.confidence_jsonb or {}).get("overall_confidence") if result else None,
+                status=extraction.status
+            ))
         
         # Pagination
-        total = len(extractions)
-        start = (page - 1) * page_size
-        end = start + page_size
-        page_extractions = extractions[start:end]
-        
-        logger.info(f"Listed {len(page_extractions)} extractions (page {page}, total {total})")
+        logger.info(f"Listed {len(extractions)} extractions (page {page}, total {total})")
         
         return ExtractionListResponse(
             total=total,
             page=page,
             page_size=page_size,
-            extractions=page_extractions
+            extractions=extractions
         )
     
     except Exception as e:
@@ -207,7 +229,8 @@ async def list_extractions(
 @router.delete("/extractions/{extraction_id}")
 async def delete_extraction(
     extraction_id: str,
-    current_user: dict = Depends(get_current_user)
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
     """
     Delete extraction and all associated files
@@ -219,16 +242,40 @@ async def delete_extraction(
     Returns confirmation of deletion.
     """
     try:
-        extraction_folder = config.OUTPUTS_DIR / "extracted" / extraction_id
-        
-        if not extraction_folder.exists():
+        try:
+            extraction_uuid = uuid.UUID(extraction_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid extraction_id")
+
+        target = (
+            db.query(models.Extraction)
+            .filter(models.Extraction.id == extraction_uuid)
+            .filter(models.Extraction.user_id == current_user.id)
+            .first()
+        )
+        if not target:
             raise HTTPException(status_code=404, detail=f"Extraction '{extraction_id}' not found")
-        
-        # Delete folder and all contents
-        shutil.rmtree(extraction_folder)
-        
+
+        output = (
+            db.query(models.ExtractionOutput)
+            .filter(models.ExtractionOutput.extraction_id == extraction_uuid)
+            .first()
+        )
+        target_folder = Path(output.storage_uri).parent if output and output.storage_uri else None
+
+        # Delete DB records
+        db.query(models.ExtractionOutput).filter(models.ExtractionOutput.extraction_id == extraction_uuid).delete()
+        db.query(models.ExtractionResult).filter(models.ExtractionResult.extraction_id == extraction_uuid).delete()
+        db.query(models.ValidationReport).filter(models.ValidationReport.extraction_id == extraction_uuid).delete()
+        db.query(models.Extraction).filter(models.Extraction.id == extraction_uuid).delete()
+        db.commit()
+
+        # Delete files (if present)
+        if target_folder and target_folder.exists():
+            shutil.rmtree(target_folder, ignore_errors=True)
+
         logger.info(f"Deleted extraction: {extraction_id}")
-        
+
         return {
             "status": "success",
             "message": f"Extraction '{extraction_id}' deleted successfully"

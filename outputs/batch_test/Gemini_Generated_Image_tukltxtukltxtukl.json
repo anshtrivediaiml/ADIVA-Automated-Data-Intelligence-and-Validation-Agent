@@ -1,0 +1,134 @@
+{
+  "status": "success",
+  "metadata": {
+    "filename": "Gemini_Generated_Image_tukltxtukltxtukl.png",
+    "file_path": "test_images\\Gemini_Generated_Image_tukltxtukltxtukl.png",
+    "file_size_bytes": 8642712,
+    "file_type": "image",
+    "processed_at": "2026-02-20 01:24:30",
+    "processing_time_seconds": 80.43,
+    "extractor_used": "OCRExtractor",
+    "quality_assessment": {
+      "file_type": "image",
+      "file_size": 8642712,
+      "readable": true,
+      "quality_score": 1.0,
+      "issues": [],
+      "dimensions": [
+        2816,
+        1536
+      ],
+      "mode": "RGBA"
+    },
+    "detected_language": "Gujarati",
+    "detected_language_code": "guj",
+    "extraction_method": "ocr",
+    "ocr_engine": "tesseract+easyocr",
+    "available_languages": [
+      "eng",
+      "guj",
+      "hin",
+      "osd"
+    ],
+    "easyocr_available": true,
+    "img2table_available": true,
+    "num_pages": 1,
+    "dimensions": [
+      2816,
+      1536
+    ],
+    "mode": "RGBA"
+  },
+  "text": {
+    "raw": "[Language: Gujarati, OCR Confidence: 91.0%, Engine: tesseract]\n\nસુરત મ્યુનિસિપલ કોર્પોરેશન — જન્મ-મૃત્યુ-લગઝ્ા નોંધણી વિભાગ\n\nIG MATLLIUal\nરજીસ્‍ટ્રેશન નંબર: SMC/LGN/2026/00123 લગ્ન તારીખ: ૧૯ ફેબ્રુઆરી २०२६\nલગ્ન સ્થળ: સુરત\n\nવરનું નામ: રાહુલકુમાર મહેશભાઈ પટેલ કન્યાનું નામ: પ્રિયાબેન સુરેશભાઈ શાહ\nઉંમર: ૨૮ વર્ષ ઉંમર: ૨૬ વર્ષ\n\nસરનામું: ૧૦૧, શિવમ એપાર્ટમેન્ટ, અડાજણ, સુરત સરનામું: ૫૦૨, ગ્રીન પાર્ક સોસાયટી, વેસુ, સુરત\nધર્મ: હિન્દુ ધર્મ: હિન્દુ\n\nસાક્ષી ૧: અમિત દેસાઈ સાક્ષી ર: નેહા જોશી\n\nરજીસ્ટ્રાર (જન્મ-મૃત્યુ-લ\nસુરત મ્યુનિસિપલ કોર્પોરે\n\n",
+    "length": 535,
+    "word_count": 73
+  },
+  "tables": [],
+  "extraction_log": [
+    "Step 1: Preprocessing and quality assessment",
+    "File type detected: image",
+    "Quality score: 1.0",
+    "Step 2: Selecting extractor",
+    "Using OCR extractor (image)",
+    "Step 3: Extracting text content",
+    "Extracted 535 characters, 73 words",
+    "Detected language: Gujarati",
+    "Step 4: Extracting metadata",
+    "Step 5: Extracting tables",
+    "Found 0 tables",
+    "Step 6: AI document classification",
+    "Classified as: certificate (confidence: 0.98)",
+    "Step 7: Extracting structured data for certificate",
+    "Structured extraction complete (confidence: 0.8)",
+    "Step 8: Extraction complete in 80.43 seconds",
+    "Step 8: Saving results to: 20260220_012430_Gemini_Generated_Image_tukltxtukltxtukl",
+    "Step 9: Exporting to multiple formats",
+    "  ✓ CSV: extraction.csv",
+    "  ✓ Excel: extraction.xlsx",
+    "  ✓ HTML: extraction.html"
+  ],
+  "classification": {
+    "document_type": "certificate",
+    "confidence": 0.98,
+    "reasoning": "The document excerpt is a marriage registration certificate issued by the Surat Municipal Corporation. It includes registration number, issuing authority, names of individuals (bride and groom), dates, and witnesses, which are typical features of an official certificate.",
+    "alternative_type": null
+  },
+  "structured_data": {
+    "certificate_type": "Marriage Certificate",
+    "certificate_number": "SMC/LGN/2026/00123",
+    "issuing_authority": "સુરત મ્યુનિસિપલ કોર્પોરેશન — જન્મ-મૃત્યુ-લગઝ્ા નોંધણી વિભાગ",
+    "issuing_authority_address": null,
+    "issue_date": null,
+    "primary_person": {
+      "name": "રાહુલકુમાર મહેશભાઈ પટેલ",
+      "age": "28",
+      "address": "૧૦૧, શિવમ એપાર્ટમેન્ટ, અડાજણ, સુરત",
+      "father_name": "મહેશભાઈ પટેલ",
+      "religion": "હિન્દુ"
+    },
+    "secondary_person": {
+      "name": "પ્રિયાબેન સુરેશભાઈ શાહ",
+      "age": "26",
+      "address": "૫૦૨, ગ્રીન પાર્ક સોસાયટી, વેસુ, સુરત",
+      "father_name": "સુરેશભાઈ શાહ",
+      "religion": "હિન્દુ"
+    },
+    "event_date": "2026-02-19",
+    "event_place": "સુરત",
+    "witnesses": [
+      "અમિત દેસાઈ",
+      "નેહા જોશી"
+    ],
+    "registrar_name": null,
+    "additional_details": {
+      "registration_section": "જન્મ-મૃત્યુ-લગઝ્ા નોંધણી વિભાગ"
+    }
+  },
+  "extraction_confidence": 0.8,
+  "comprehensive_confidence": {
+    "overall_confidence": 0.872,
+    "metrics": {
+      "schema_completeness": 0.8,
+      "data_quality": 0.85,
+      "field_confidence": 0.9,
+      "consistency": 1.0,
+      "ocr_quality": 1.0
+    },
+    "grade": "B+",
+    "explanations": [
+      "⚠️ 20% of required fields are missing",
+      "✅ Data quality is good"
+    ],
+    "recommendations": [
+      "Review document to fill in missing required fields"
+    ]
+  },
+  "output_file": "C:\\Users\\AnshTrivedi\\OneDrive - ProductSquads Technolabs LLP\\Documents\\ADIVA\\outputs\\extracted\\20260220_012430_Gemini_Generated_Image_tukltxtukltxtukl\\extraction.json",
+  "extraction_folder": "C:\\Users\\AnshTrivedi\\OneDrive - ProductSquads Technolabs LLP\\Documents\\ADIVA\\outputs\\extracted\\20260220_012430_Gemini_Generated_Image_tukltxtukltxtukl",
+  "exports": {
+    "csv": "C:\\Users\\AnshTrivedi\\OneDrive - ProductSquads Technolabs LLP\\Documents\\ADIVA\\outputs\\extracted\\20260220_012430_Gemini_Generated_Image_tukltxtukltxtukl\\extraction.csv",
+    "excel": "C:\\Users\\AnshTrivedi\\OneDrive - ProductSquads Technolabs LLP\\Documents\\ADIVA\\outputs\\extracted\\20260220_012430_Gemini_Generated_Image_tukltxtukltxtukl\\extraction.xlsx",
+    "html": "C:\\Users\\AnshTrivedi\\OneDrive - ProductSquads Technolabs LLP\\Documents\\ADIVA\\outputs\\extracted\\20260220_012430_Gemini_Generated_Image_tukltxtukltxtukl\\extraction.html"
+  }
+}

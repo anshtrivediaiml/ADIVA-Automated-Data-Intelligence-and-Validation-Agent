@@ -1,0 +1,158 @@
+{
+  "status": "success",
+  "metadata": {
+    "filename": "Gemini_Generated_Image_clf1x4clf1x4clf1.png",
+    "file_path": "test_images\\Gemini_Generated_Image_clf1x4clf1x4clf1.png",
+    "file_size_bytes": 7609735,
+    "file_type": "image",
+    "processed_at": "2026-02-20 01:13:24",
+    "processing_time_seconds": 28.54,
+    "extractor_used": "OCRExtractor",
+    "quality_assessment": {
+      "file_type": "image",
+      "file_size": 7609735,
+      "readable": true,
+      "quality_score": 1.0,
+      "issues": [],
+      "dimensions": [
+        2816,
+        1536
+      ],
+      "mode": "RGBA"
+    },
+    "detected_language": "Hindi",
+    "detected_language_code": "hin",
+    "extraction_method": "ocr",
+    "ocr_engine": "tesseract+easyocr",
+    "available_languages": [
+      "eng",
+      "guj",
+      "hin",
+      "osd"
+    ],
+    "easyocr_available": true,
+    "img2table_available": true,
+    "num_pages": 1,
+    "dimensions": [
+      2816,
+      1536
+    ],
+    "mode": "RGBA"
+  },
+  "text": {
+    "raw": "[Language: Hindi, OCR Confidence: 75.9%, Engine: tesseract]\n\nह ore -\n|\n\nवार्षिक परीक्षा પરિળામ - सत्र 2025-26\n\nछात्र/छात्रा का नाम: राहुल कुमार Ha: 10d | रोल नंबर: 251045 जन्म तिथि: 15/07/2010\nsag 1/૫૨\n\nડ્‌ | \\oe\n100-- A\n\n100 ૪૪11 927 At\nA\nBt\n\nकुल पूर्णांक: 600 कुल प्राप्तांक: 513 प्रतिशत: 85.5% परिणाम: उत्तीर्ण\n\n\\\nकक्षा अध्यापक के हस्ताक्षर: રે प्रधानाचार्य के हस्ताक्षर:\n\nt\niW |\n\ncy\n",
+    "length": 387,
+    "word_count": 67
+  },
+  "tables": [],
+  "extraction_log": [
+    "Step 1: Preprocessing and quality assessment",
+    "File type detected: image",
+    "Quality score: 1.0",
+    "Step 2: Selecting extractor",
+    "Using OCR extractor (image)",
+    "Step 3: Extracting text content",
+    "Extracted 387 characters, 67 words",
+    "Detected language: Hindi",
+    "Step 4: Extracting metadata",
+    "Step 5: Extracting tables",
+    "Found 0 tables",
+    "Step 6: AI document classification",
+    "Classified as: marksheet (confidence: 0.98)",
+    "Step 7: Extracting structured data for marksheet",
+    "Structured extraction complete (confidence: 0.8)",
+    "Step 8: Extraction complete in 28.54 seconds",
+    "Step 8: Saving results to: 20260220_011324_Gemini_Generated_Image_clf1x4clf1x4clf1",
+    "Step 9: Exporting to multiple formats",
+    "  ✓ CSV: extraction.csv",
+    "  ✓ Excel: extraction.xlsx",
+    "  ✓ HTML: extraction.html"
+  ],
+  "classification": {
+    "document_type": "marksheet",
+    "confidence": 0.98,
+    "reasoning": "The document excerpt contains subject-wise marks, total marks, percentage, and result details for a student, which are characteristic features of a school/college marksheet or report card.",
+    "alternative_type": null
+  },
+  "structured_data": {
+    "institution_name": null,
+    "exam_name": "वार्षिक परीक्षा - सत्र 2025-26",
+    "student_name": "राहुल कुमार",
+    "roll_number": "251045",
+    "class_grade": "10d",
+    "academic_year": "2025-26",
+    "date_of_birth": "2010-07-15",
+    "subjects": [
+      {
+        "name": "हिन्दी",
+        "max_marks": 100,
+        "marks_obtained": null,
+        "grade": "A"
+      },
+      {
+        "name": "गुजराती",
+        "max_marks": 100,
+        "marks_obtained": 92,
+        "grade": "A"
+      },
+      {
+        "name": null,
+        "max_marks": 100,
+        "marks_obtained": 77,
+        "grade": null
+      },
+      {
+        "name": null,
+        "max_marks": 100,
+        "marks_obtained": null,
+        "grade": "B"
+      },
+      {
+        "name": null,
+        "max_marks": 100,
+        "marks_obtained": null,
+        "grade": null
+      },
+      {
+        "name": null,
+        "max_marks": 100,
+        "marks_obtained": null,
+        "grade": null
+      }
+    ],
+    "total_marks": 513,
+    "max_total_marks": 600,
+    "percentage": 85.5,
+    "result": "उत्तीर्ण",
+    "class_teacher": null,
+    "principal": null,
+    "issue_date": null
+  },
+  "extraction_confidence": 0.8,
+  "comprehensive_confidence": {
+    "overall_confidence": 0.843,
+    "metrics": {
+      "schema_completeness": 0.8,
+      "data_quality": 0.733,
+      "field_confidence": 0.9,
+      "consistency": 1.0,
+      "ocr_quality": 1.0
+    },
+    "grade": "B",
+    "explanations": [
+      "⚠️ 20% of required fields are missing",
+      "⚠️ Some fields have missing or invalid data"
+    ],
+    "recommendations": [
+      "Review document to fill in missing required fields",
+      "Manually verify and correct invalid or missing field values"
+    ]
+  },
+  "output_file": "C:\\Users\\AnshTrivedi\\OneDrive - ProductSquads Technolabs LLP\\Documents\\ADIVA\\outputs\\extracted\\20260220_011324_Gemini_Generated_Image_clf1x4clf1x4clf1\\extraction.json",
+  "extraction_folder": "C:\\Users\\AnshTrivedi\\OneDrive - ProductSquads Technolabs LLP\\Documents\\ADIVA\\outputs\\extracted\\20260220_011324_Gemini_Generated_Image_clf1x4clf1x4clf1",
+  "exports": {
+    "csv": "C:\\Users\\AnshTrivedi\\OneDrive - ProductSquads Technolabs LLP\\Documents\\ADIVA\\outputs\\extracted\\20260220_011324_Gemini_Generated_Image_clf1x4clf1x4clf1\\extraction.csv",
+    "excel": "C:\\Users\\AnshTrivedi\\OneDrive - ProductSquads Technolabs LLP\\Documents\\ADIVA\\outputs\\extracted\\20260220_011324_Gemini_Generated_Image_clf1x4clf1x4clf1\\extraction.xlsx",
+    "html": "C:\\Users\\AnshTrivedi\\OneDrive - ProductSquads Technolabs LLP\\Documents\\ADIVA\\outputs\\extracted\\20260220_011324_Gemini_Generated_Image_clf1x4clf1x4clf1\\extraction.html"
+  }
+}

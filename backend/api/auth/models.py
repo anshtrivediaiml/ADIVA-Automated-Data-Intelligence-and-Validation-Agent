@@ -48,7 +48,7 @@ class MeResponse(BaseModel):
     name: str
     email: str
     role: str
-    username: str
+    username: Optional[str] = None
 
 
 # Rebuild to allow forward ref

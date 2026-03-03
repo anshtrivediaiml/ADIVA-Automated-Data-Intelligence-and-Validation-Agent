@@ -1,0 +1,165 @@
+{
+  "status": "success",
+  "metadata": {
+    "filename": "Gemini_Generated_Image_rk6ssgrk6ssgrk6s.png",
+    "file_path": "test_images\\Gemini_Generated_Image_rk6ssgrk6ssgrk6s.png",
+    "file_size_bytes": 8862975,
+    "file_type": "image",
+    "processed_at": "2026-02-20 01:23:10",
+    "processing_time_seconds": 46.36,
+    "extractor_used": "OCRExtractor",
+    "quality_assessment": {
+      "file_type": "image",
+      "file_size": 8862975,
+      "readable": true,
+      "quality_score": 1.0,
+      "issues": [],
+      "dimensions": [
+        2816,
+        1536
+      ],
+      "mode": "RGBA"
+    },
+    "detected_language": "Hindi",
+    "detected_language_code": "hin",
+    "extraction_method": "ocr",
+    "ocr_engine": "tesseract+easyocr",
+    "available_languages": [
+      "eng",
+      "guj",
+      "hin",
+      "osd"
+    ],
+    "easyocr_available": true,
+    "img2table_available": true,
+    "num_pages": 1,
+    "dimensions": [
+      2816,
+      1536
+    ],
+    "mode": "RGBA"
+  },
+  "text": {
+    "raw": "[Language: Hindi, OCR Confidence: 90.7%, Engine: tesseract]\n\nયે.\n\nષ્ક\n\nसेवा अनुबंध / SERVICE AGREEMENT\n\nयह अनुबंध / This Agreement, made on 19 फरवरी 2026 / February 19, 2026, by and between:\n\nप्रथम पक्ष / Party A: रवि शर्मा, नई दिल्‍ली (hereinafter referred to as ‘Service Provider’) and\n\nद्वितीय पक्ष / Party 8: ABC Solutions Pvt. Ltd., मुंबई (hereinafter referred to as 'Client'’).\n\n1. भुगतान / PAYMENT: द्वितीय पक्ष (Party 8) प्रथम पक्ष (Party A) को प्रति माह = 50,000 (Rupees Fifty Thousand only)\n\nअवधि | [) गतान करेगा for services rendered, payable by the Sth of each month.\n\n2.\n\n/ DURATION: यह अनुबंभ 1 વર્ષ (one year) के लिए प्रभावी होगा, commencing from 01 मार्च 2026, unless\n\nterminated earlier.\n\n3. समाप्ति / TERMINATION: कोई भी पक्ष (Either Party) 30 दिन का लिखिंत नोटिस (written notice) देकर इस अनुबंध को\n\nसमाप्त कर सकता ₹.\n\nहद\n\n4. गोपनीयता / CONFIDENTIALITY: दोनों पक्ष (Both Parties) सहमत हैं कि वे एक-दूसरे की गोपनीय जानकारी (confidential\n\n!\n\ninformationn) को सुरक्षि क्षेत रखेंगे 10 not disclose it to any third party.\n\n5. विवाद समाधान / DISPUTE RESOLUTION: किसी भी विवाद (dispute) को मध्यस्थता (arbitration) के माध्यम से\n\nविविध जाएगा, and the jurisdiction shall be Delhi courts.\n\n6.\n\n/ MISCELLANEOUS: यह अनुबंध दोनों पक्षों के बीच पूर्ण समझौता (entire agreement) है.\n\nहस्ताक्षर / Signature: (Party A Signature)\n\nहस्ताक्षर / Signature: (Party B Signature)\n\n(&) ।\n\nनाम / Name: रवि शर्मा वि\n\n\\ SEAL\n\nनाम / Name: (Director, ABC Solutions),\n\nदिनांक / Date: 19/02/2026\n\n\\\n\nदिनांक / Date: 19/02/2026\n\nगवाह / Witness: (Witness Signature)\n\nनाम / Name: अमित कुमार\n",
+    "length": 1571,
+    "word_count": 261
+  },
+  "tables": [],
+  "extraction_log": [
+    "Step 1: Preprocessing and quality assessment",
+    "File type detected: image",
+    "Quality score: 1.0",
+    "Step 2: Selecting extractor",
+    "Using OCR extractor (image)",
+    "Step 3: Extracting text content",
+    "Extracted 1571 characters, 261 words",
+    "Detected language: Hindi",
+    "Step 4: Extracting metadata",
+    "Step 5: Extracting tables",
+    "Found 0 tables",
+    "Step 6: AI document classification",
+    "Classified as: contract (confidence: 0.99)",
+    "Step 7: Extracting structured data for contract",
+    "Structured extraction complete (confidence: 1.0)",
+    "Step 8: Extraction complete in 46.36 seconds",
+    "Step 8: Saving results to: 20260220_012310_Gemini_Generated_Image_rk6ssgrk6ssgrk6s",
+    "Step 9: Exporting to multiple formats",
+    "  ✓ CSV: extraction.csv",
+    "  ✓ Excel: extraction.xlsx",
+    "  ✓ HTML: extraction.html"
+  ],
+  "classification": {
+    "document_type": "contract",
+    "confidence": 0.99,
+    "reasoning": "The document is a 'Service Agreement' (सेवा अनुबंध) between two parties, outlining terms such as payment, duration, termination, confidentiality, and dispute resolution. It includes signatures, dates, and legal clauses, which are characteristic of a contract or legal agreement.",
+    "alternative_type": null
+  },
+  "structured_data": {
+    "contract_title": "सेवा अनुबंध / SERVICE AGREEMENT",
+    "contract_type": "Service",
+    "contract_number": null,
+    "contract_date": "2026-02-19",
+    "parties": [
+      {
+        "name": "रवि शर्मा",
+        "role": "Service Provider",
+        "address": "नई दिल्‍ली",
+        "contact": null,
+        "signatory": "रवि शर्मा"
+      },
+      {
+        "name": "ABC Solutions Pvt. Ltd.",
+        "role": "Client",
+        "address": "मुंबई",
+        "contact": null,
+        "signatory": "Director, ABC Solutions"
+      }
+    ],
+    "effective_date": "2026-03-01",
+    "expiration_date": "2027-02-28",
+    "term_duration": "1 year",
+    "scope_of_work": null,
+    "deliverables": [],
+    "payment_terms": {
+      "amount": 50000,
+      "currency": "INR",
+      "schedule": "Monthly by the 5th of each month",
+      "method": null
+    },
+    "obligations": {
+      "party_1": [
+        "Provide services as agreed",
+        "Maintain confidentiality of the Client's information"
+      ],
+      "party_2": [
+        "Pay the Service Provider INR 50,000 per month by the 5th of each month for services rendered",
+        "Maintain confidentiality of the Service Provider's information"
+      ]
+    },
+    "confidentiality": "Both Parties agree to keep each other's confidential information secure and not disclose it to any third party.",
+    "termination_clause": "Either Party may terminate this Agreement by providing a 30-day written notice.",
+    "dispute_resolution": "Any dispute shall be resolved through arbitration, and the jurisdiction shall be Delhi courts.",
+    "governing_law": "Delhi, India",
+    "special_conditions": [
+      "This Agreement constitutes the entire agreement between the Parties."
+    ],
+    "signatures": [
+      {
+        "party": "रवि शर्मा",
+        "signed_by": "रवि शर्मा",
+        "date": "2026-02-19"
+      },
+      {
+        "party": "ABC Solutions Pvt. Ltd.",
+        "signed_by": "Director, ABC Solutions",
+        "date": "2026-02-19"
+      }
+    ]
+  },
+  "extraction_confidence": 1.0,
+  "comprehensive_confidence": {
+    "overall_confidence": 0.935,
+    "metrics": {
+      "schema_completeness": 1.0,
+      "data_quality": 0.818,
+      "field_confidence": 0.9,
+      "consistency": 1.0,
+      "ocr_quality": 1.0
+    },
+    "grade": "A",
+    "explanations": [
+      "✅ All required fields are present",
+      "✅ Data quality is good"
+    ],
+    "recommendations": [
+      "✅ Extraction quality is excellent!"
+    ]
+  },
+  "output_file": "C:\\Users\\AnshTrivedi\\OneDrive - ProductSquads Technolabs LLP\\Documents\\ADIVA\\outputs\\extracted\\20260220_012310_Gemini_Generated_Image_rk6ssgrk6ssgrk6s\\extraction.json",
+  "extraction_folder": "C:\\Users\\AnshTrivedi\\OneDrive - ProductSquads Technolabs LLP\\Documents\\ADIVA\\outputs\\extracted\\20260220_012310_Gemini_Generated_Image_rk6ssgrk6ssgrk6s",
+  "exports": {
+    "csv": "C:\\Users\\AnshTrivedi\\OneDrive - ProductSquads Technolabs LLP\\Documents\\ADIVA\\outputs\\extracted\\20260220_012310_Gemini_Generated_Image_rk6ssgrk6ssgrk6s\\extraction.csv",
+    "excel": "C:\\Users\\AnshTrivedi\\OneDrive - ProductSquads Technolabs LLP\\Documents\\ADIVA\\outputs\\extracted\\20260220_012310_Gemini_Generated_Image_rk6ssgrk6ssgrk6s\\extraction.xlsx",
+    "html": "C:\\Users\\AnshTrivedi\\OneDrive - ProductSquads Technolabs LLP\\Documents\\ADIVA\\outputs\\extracted\\20260220_012310_Gemini_Generated_Image_rk6ssgrk6ssgrk6s\\extraction.html"
+  }
+}
