@@ -29,7 +29,7 @@ try:
 
     if platform.system() == "Windows":
         pytesseract.pytesseract.tesseract_cmd = (
-            r"C:\Users\AnshTrivedi\AppData\Local\Programs\Tesseract-OCR\tesseract.exe"
+            r"C:\Program Files\Tesseract-OCR\tesseract.exe"
         )
     from pdf2image import convert_from_path
     from PIL import Image, ImageFilter, ImageEnhance

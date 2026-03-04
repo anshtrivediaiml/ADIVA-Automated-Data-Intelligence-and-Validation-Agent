@@ -15,9 +15,9 @@ import os
 backend_path = Path(__file__).parent.parent
 sys.path.insert(0, str(backend_path))
 
-from api.routes import extraction, results, health
-from api.auth import routes as auth_routes
+from api.routes import extraction, results, health, validation
 from logger import logger
+from database import close_connection, get_client
 
 # Create FastAPI app
 app = FastAPI(
@@ -25,12 +25,6 @@ app = FastAPI(
     version="1.0.0",
     description="""
     Intelligent document extraction API powered by AI.
-
-    ## Authentication
-    All extraction and results endpoints require a **JWT Bearer token**.
-    1. Call `POST /api/auth/login` with your email + password.
-    2. Copy the `access_token` from the response.
-    3. Click **Authorize** (🔒) above and paste: `Bearer <token>`.
 
     ## Features
     - **Multi-format support**: PDF, DOCX, Images, Scanned documents
@@ -74,10 +68,10 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 # Include routers
-app.include_router(health.router,       prefix="/api",  tags=["Health"])
-app.include_router(auth_routes.router,  prefix="/api",  tags=["Authentication"])
+app.include_router(health.router, prefix="/api", tags=["health"])
 app.include_router(extraction.router,   prefix="/api",  tags=["Extraction"])
 app.include_router(results.router,      prefix="/api",  tags=["Results"])
+app.include_router(validation.router,   prefix="/api",  tags=["Validation"])
 
 # Root endpoint
 @app.get("/", tags=["Root"])
@@ -96,12 +90,19 @@ async def startup_event():
     logger.info("=" * 70)
     logger.info("ADIVA API Starting")
     logger.info("=" * 70)
+    # Connect to MongoDB and seed default admin
+    try:
+        get_client()  # Establish connection
+        logger.info("MongoDB ready")
+    except Exception as e:
+        logger.error(f"MongoDB startup failed: {e}")
     logger.info("API Documentation: http://localhost:8000/docs")
     logger.info("Health Check: http://localhost:8000/api/health")
 
 # Shutdown event
 @app.on_event("shutdown")
 async def shutdown_event():
+    close_connection()
     logger.info("ADIVA API Shutting Down")
 
 
@@ -116,39 +117,3 @@ if __name__ == "__main__":
     )
 
 
-# ──────────────────────────────────────────────────────────
-# Custom OpenAPI schema — adds BearerAuth to Swagger UI
-# ──────────────────────────────────────────────────────────
-from fastapi.openapi.utils import get_openapi
-
-def custom_openapi():
-    if app.openapi_schema:
-        return app.openapi_schema
-
-    schema = get_openapi(
-        title=app.title,
-        version=app.version,
-        description=app.description,
-        routes=app.routes,
-    )
-
-    # Inject BearerAuth security scheme
-    schema.setdefault("components", {}).setdefault("securitySchemes", {})
-    schema["components"]["securitySchemes"]["BearerAuth"] = {
-        "type": "http",
-        "scheme": "bearer",
-        "bearerFormat": "JWT",
-        "description": "Paste your access_token from POST /api/auth/login here.",
-    }
-
-    # Apply BearerAuth to every protected path (skip /auth and /health)
-    for path, methods in schema.get("paths", {}).items():
-        if path.startswith("/api/auth") or path.startswith("/api/health") or path == "/":
-            continue
-        for method in methods.values():
-            method.setdefault("security", []).append({"BearerAuth": []})
-
-    app.openapi_schema = schema
-    return schema
-
-app.openapi = custom_openapi

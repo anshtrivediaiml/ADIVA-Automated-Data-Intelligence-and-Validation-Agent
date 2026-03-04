@@ -7,7 +7,7 @@ Tests multi-language OCR capability with language detection.
 import sys
 from pathlib import Path
 
-# Add backend to path
+
 sys.path.insert(0, str(Path(__file__).parent / 'backend'))
 
 from extractors.ocr_extractor import OCRExtractor
@@ -26,7 +26,6 @@ def test_multilang_setup():
     print("=" * 70)
     
     try:
-        # Initialize OCR extractor
         extractor = OCRExtractor()
         
         print(f"\n✅ OCR Extractor initialized successfully!")
@@ -34,7 +33,6 @@ def test_multilang_setup():
         for code, name in extractor.supported_languages.items():
             print(f"   • {name} ({code})")
         
-        # Check available languages
         available = extractor._get_available_languages()
         print(f"\n💾 Installed Tesseract Languages:")
         for lang in available:
@@ -44,7 +42,6 @@ def test_multilang_setup():
             else:
                 print(f"   • {lang}")
         
-        # Check for missing languages
         missing = []
         for code in ['hin', 'guj']:
             if code not in available:

@@ -149,7 +149,7 @@ pip install -r requirements.txt
 
 **Windows:**
 1. Download from: https://github.com/UB-Mannheim/tesseract/wiki
-2. Install to `C:\Program Files\Tesseract-OCR\`
+2. Install to C:\Users\JapanKachhiya\Downloads\tesseract-ocr-w64-setup-5.5.0.20241111 (1).exe"'
 3. Add to PATH or set in Python:
    ```python
    pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'

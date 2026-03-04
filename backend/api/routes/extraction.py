@@ -4,7 +4,7 @@ Extraction Routes
 Document extraction endpoints.
 """
 
-from fastapi import APIRouter, UploadFile, File, HTTPException, Form, Depends
+from fastapi import APIRouter, UploadFile, File, HTTPException, Form
 from fastapi.responses import JSONResponse
 from typing import List, Optional
 import sys
@@ -18,7 +18,7 @@ backend_path = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(backend_path))
 
 from api.models.responses import ExtractionResponse, BatchResponse, ErrorResponse
-from api.middleware.auth_middleware import get_current_user
+
 from extractor import DocumentExtractor
 from logger import logger
 import config
@@ -82,8 +82,7 @@ async def save_upload_file(upload_file: UploadFile) -> Path:
 
 @router.post("/extract", response_model=ExtractionResponse)
 async def extract_document(
-    file: UploadFile = File(..., description="Document file to extract"),
-    current_user: dict = Depends(get_current_user)
+    file: UploadFile = File(..., description="Document file to extract")
 ):
     """
     Extract from uploaded document
@@ -148,8 +147,7 @@ async def extract_document(
 
 @router.post("/extract/batch", response_model=BatchResponse)
 async def extract_batch(
-    files: List[UploadFile] = File(..., description="Multiple document files"),
-    current_user: dict = Depends(get_current_user)
+    files: List[UploadFile] = File(..., description="Multiple document files")
 ):
     """
     Batch extraction from multiple documents

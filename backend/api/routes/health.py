@@ -52,6 +52,14 @@ async def health_check():
     except:
         dependencies["ocr"] = "error"
     
+    # Check MongoDB
+    try:
+        from database import get_client
+        get_client().admin.command("ping")
+        dependencies["mongodb"] = "connected"
+    except:
+        dependencies["mongodb"] = "not connected"
+    
     logger.info("Health check requested")
     
     return HealthResponse(

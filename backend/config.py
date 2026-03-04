@@ -23,35 +23,13 @@ MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
 PROJECT_NAME = os.getenv("PROJECT_NAME", "ADIVA")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 
-# ========================
-# JWT Authentication
-# ========================
-
-# Secret key used to sign tokens. Override via JWT_SECRET_KEY env var in production.
-JWT_SECRET_KEY = os.getenv(
-    "JWT_SECRET_KEY",
-    "adiva-secret-key-change-in-production-29af8e3c1b7d"
-)
-JWT_ALGORITHM = "HS256"
-JWT_ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
-JWT_REFRESH_TOKEN_EXPIRE_DAYS   = int(os.getenv("JWT_REFRESH_TOKEN_EXPIRE_DAYS", "7"))
 
 # ========================
-# Hardcoded Users
+# MongoDB Configuration
 # ========================
-# Passwords are bcrypt-hashed. Default plaintext: adiva@2026
-# To generate a new hash: from passlib.context import CryptContext; CryptContext(['bcrypt']).hash('yourpassword')
 
-HARDCODED_USERS = [
-    {
-        "username": "anshtrivedi",
-        "name": "Ansh Trivedi",
-        "email": "ansh@adiva.ai",
-        "role": "admin",
-        # bcrypt hash of: adiva@2026
-        "hashed_password": "$2b$12$QomktBtHiAp1njTofHaCoeDNHYxyAKpUZEA7RrGaUl5qFGKtTgTIe",
-    },
-]
+MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
+MONGO_DB_NAME = os.getenv("MONGO_DB_NAME", "adiva")
 
 # ========================
 # Project Paths
