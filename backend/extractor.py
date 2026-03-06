@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 import time
 import json
+import re
 
 from extractors.preprocessor import DocumentPreprocessor
 from extractors.pdf_extractor import PDFExtractor
@@ -76,17 +77,26 @@ class DocumentExtractor:
             Dictionary containing all extracted data and metadata
         """
         start_time = time.time()
+        stage_start = time.perf_counter()
         file_path = Path(file_path)
         
         logger.info(f"Starting extraction for: {file_path.name}")
         
         extraction_log = []
+        stage_timings: Dict[str, float] = {}
+
+        def _mark(stage_name: str) -> None:
+            nonlocal stage_start
+            now = time.perf_counter()
+            stage_timings[stage_name] = round(now - stage_start, 4)
+            stage_start = now
         
         try:
             # Step 1: Preprocess and analyze
             extraction_log.append("Step 1: Preprocessing and quality assessment")
             file_type = self.preprocessor.detect_file_type(file_path)
             quality = self.preprocessor.assess_quality(file_path)
+            _mark("preprocess")
             
             extraction_log.append(f"File type detected: {file_type}")
             extraction_log.append(f"Quality score: {quality['quality_score']}")
@@ -113,6 +123,7 @@ class DocumentExtractor:
                 extractor = self.ocr_extractor
             else:
                 raise ValueError(f"Unsupported file type: {file_type}")
+            _mark("select_extractor")
             
             # Step 3: Extract text
             extraction_log.append("Step 3: Extracting text content")
@@ -136,6 +147,7 @@ class DocumentExtractor:
                     )
                     extractor = self.ocr_extractor
                     raw_text = extractor.extract_text(file_path, language=None)
+            _mark("extract_text")
 
             word_count = len(raw_text.split())
             extraction_log.append(f"Extracted {len(raw_text)} characters, {word_count} words")
@@ -149,11 +161,13 @@ class DocumentExtractor:
             # Step 4: Extract metadata
             extraction_log.append("Step 4: Extracting metadata")
             metadata = extractor.extract_metadata(file_path)
+            _mark("extract_metadata")
             
             # Step 5: Extract tables
             extraction_log.append("Step 5: Extracting tables")
             tables = extractor.extract_tables(file_path)
             extraction_log.append(f"Found {len(tables)} tables")
+            _mark("extract_tables")
             
             # Step 6: AI Classification (if available)
             classification = None
@@ -167,6 +181,7 @@ class DocumentExtractor:
                     extraction_log.append(f"Classification failed: {str(e)}")
             else:
                 extraction_log.append("Step 6: AI classification skipped (AI agent not available)")
+            _mark("classify")
             
             # Step 7: Structured Data Extraction (if document type has a schema)
             structured_data = None
@@ -193,6 +208,7 @@ class DocumentExtractor:
                     extraction_log.append(f"Structured extraction failed: {str(e)}")
             else:
                 extraction_log.append(f"Step 7: Structured extraction skipped (type '{doc_type}' has no schema)")
+            _mark("structured_extract")
 
             
             # Step 8: Prepare output
@@ -235,8 +251,17 @@ class DocumentExtractor:
                 
                 # Add comprehensive confidence scoring
                 if self.confidence_scorer and classification:
+                    ocr_confidence = 1.0
+                    if extractor == self.ocr_extractor:
+                        m = re.search(r"OCR Confidence:\s*([0-9]+(?:\.[0-9]+)?)%", raw_text)
+                        if m:
+                            try:
+                                ocr_confidence = max(0.0, min(1.0, float(m.group(1)) / 100.0))
+                            except Exception:
+                                ocr_confidence = 1.0
+
                     extraction_metadata = {
-                        'ocr_confidence': quality.get('ocr_confidence', 1.0) if quality.get('is_scanned') else 1.0
+                        'ocr_confidence': ocr_confidence
                     }
                     
                     comprehensive_confidence = self.confidence_scorer.calculate_comprehensive_confidence(
@@ -247,6 +272,7 @@ class DocumentExtractor:
                     
                     result['comprehensive_confidence'] = comprehensive_confidence
                     logger.info(f"Comprehensive confidence: {comprehensive_confidence['overall_confidence']} ({comprehensive_confidence['grade']})")
+            _mark("confidence_scoring")
 
             
             # Step 7: Create organized output folder
@@ -263,6 +289,7 @@ class DocumentExtractor:
             result['output_file'] = str(output_file)
             result['extraction_folder'] = str(extraction_folder)
             logger.info(f"Extraction results saved to: {extraction_folder.name}/extraction.json")
+            _mark("save_json")
             
             # Step 8: Export to multiple formats (if structured data exists)
             if structured_data:
@@ -301,6 +328,9 @@ class DocumentExtractor:
                     extraction_log.append(f"Export failed: {str(e)}")
             else:
                 extraction_log.append("Step 9: Format exports skipped (no structured data)")
+            _mark("exports")
+
+            result['metadata']['stage_timings_seconds'] = stage_timings
 
 
 
@@ -317,7 +347,8 @@ class DocumentExtractor:
                 'metadata': {
                     'filename': file_path.name,
                     'processed_at': time.strftime('%Y-%m-%d %H:%M:%S'),
-                    'processing_time_seconds': round(processing_time, 2)
+                    'processing_time_seconds': round(processing_time, 2),
+                    'stage_timings_seconds': stage_timings,
                 },
                 'extraction_log': extraction_log
             }

@@ -15,7 +15,7 @@ import os
 backend_path = Path(__file__).parent.parent
 sys.path.insert(0, str(backend_path))
 
-from api.routes import extraction, results, health
+from api.routes import extraction, results, health, validation
 from api.auth import routes as auth_routes
 from logger import logger
 
@@ -78,6 +78,7 @@ app.include_router(health.router,       prefix="/api",  tags=["Health"])
 app.include_router(auth_routes.router,  prefix="/api",  tags=["Authentication"])
 app.include_router(extraction.router,   prefix="/api",  tags=["Extraction"])
 app.include_router(results.router,      prefix="/api",  tags=["Results"])
+app.include_router(validation.router,   prefix="/api",  tags=["Validation"])
 
 # Root endpoint
 @app.get("/", tags=["Root"])

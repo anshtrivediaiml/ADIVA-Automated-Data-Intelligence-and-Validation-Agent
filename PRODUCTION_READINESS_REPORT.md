@@ -825,3 +825,21 @@ CI/CD:
 7. Begin implementation
 
 **Good luck with your production journey!** 🚀
+
+---
+
+## Progress Updates (Post Report)
+
+### 2026-02-25
+- Added authentication flow and DB-backed user handling.
+- Added secure upload hardening (sanitized filenames, streamed writes, file-size limits, magic-byte checks).
+- Added persistent extraction storage with PostgreSQL models and migrations.
+- Migrated results/listing to DB-backed reads and standardized extraction IDs to UUIDs.
+
+### 2026-03-05
+- Fixed batch extraction cleanup regression in `backend/api/routes/extraction.py` where tuple entries in `temp_paths` caused `AttributeError` in `finally`.
+- Restored correct error behavior for invalid uploaded files in batch mode (validation failures now return the intended HTTP 400 path without escalating to HTTP 500).
+- Replaced brittle image header-only validation with Pillow decode/verify checks for `.png/.jpg/.jpeg/.tiff/.bmp`.
+- Added extension/content mismatch tolerance for valid images (logged as warning), reducing false negatives from client-side file naming issues.
+- Added stage-level extraction timings in `backend/extractor.py` and exposed them as `metadata.stage_timings_seconds` for baseline performance visibility.
+- Added `tests/baseline_benchmark.py` to generate `outputs/metrics/baseline_metrics.md` with run summary, per-stage averages, and optional doc-type accuracy with labeled samples.

@@ -4,7 +4,8 @@ Enhanced Confidence Scoring Module
 Provides multi-metric confidence scoring for extraction quality.
 """
 
-from typing import Dict, Any, List
+from datetime import date, datetime
+from typing import Dict, Any, List, Optional
 from schemas import get_schema
 
 
@@ -145,6 +146,44 @@ class ConfidenceScorer:
         # TODO: Extract field-level confidence from LLM responses
         # For now, assume high confidence
         return 0.9
+
+    def _parse_date(self, value: Any) -> Optional[date]:
+        """Parse common date representations into a date, else None."""
+        if value is None:
+            return None
+
+        if isinstance(value, datetime):
+            return value.date()
+        if isinstance(value, date):
+            return value
+
+        text = str(value).strip()
+        if not text:
+            return None
+
+        if text.lower() in {"present", "current", "ongoing", "till date"}:
+            return None
+
+        normalized = text.replace("/", "-").replace(".", "-")
+        formats = (
+            "%Y-%m-%d",
+            "%d-%m-%Y",
+            "%m-%d-%Y",
+            "%d-%m-%y",
+            "%m-%d-%y",
+            "%b %Y",
+            "%B %Y",
+            "%Y-%m",
+            "%Y",
+        )
+        for fmt in formats:
+            try:
+                parsed = datetime.strptime(normalized, fmt)
+                return parsed.date().replace(day=1) if fmt in {"%b %Y", "%B %Y", "%Y-%m", "%Y"} else parsed.date()
+            except ValueError:
+                continue
+
+        return None
     
     def _calculate_consistency(
         self, 
@@ -173,17 +212,18 @@ class ConfidenceScorer:
             if 'experience' in data:
                 for exp in data.get('experience', []):
                     checks += 1
-                    start = exp.get('start_date', '')
-                    end = exp.get('end_date', '')
-                    if start and end and end != 'Present':
-                        if start > end:
-                            issues += 1
+                    start = self._parse_date(exp.get('start_date'))
+                    end = self._parse_date(exp.get('end_date'))
+                    if start and end and start > end:
+                        issues += 1
         
         elif doc_type == 'contract':
             # Check date logic
             if 'effective_date' in data and 'expiration_date' in data:
                 checks += 1
-                if data['effective_date'] > data['expiration_date']:
+                effective_date = self._parse_date(data.get('effective_date'))
+                expiration_date = self._parse_date(data.get('expiration_date'))
+                if effective_date and expiration_date and effective_date > expiration_date:
                     issues += 1
         
         if checks == 0:
