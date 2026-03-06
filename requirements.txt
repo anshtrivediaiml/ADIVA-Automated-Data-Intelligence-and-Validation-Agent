@@ -27,3 +27,4 @@ tabulate
 camelot-py[cv]
 pikepdf
 opencv-python
+paddleocr>=2.7.0      # Preferred OCR fallback (optional but recommended)

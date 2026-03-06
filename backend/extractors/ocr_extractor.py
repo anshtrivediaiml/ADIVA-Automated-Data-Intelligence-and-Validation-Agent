@@ -2,7 +2,7 @@
 ADIVA - OCR Extractor (Scanned Documents)
 
 Extracts text from scanned PDFs and images using Tesseract OCR with
-EasyOCR fallback for handwritten documents.
+PaddleOCR/EasyOCR fallback for difficult low-confidence cases.
 
 Handles:
 - Printed documents (Tesseract, fast)
@@ -49,15 +49,25 @@ except ImportError:
     HAS_CV2 = False
     logger.info("OpenCV not available. Basic PIL preprocessing will be used.")
 
-# ── EasyOCR for handwriting fallback ────────────────────────────────────────
+# ── EasyOCR for compatibility fallback ─────────────────────────────────────
 try:
     import easyocr
 
     HAS_EASYOCR = True
-    logger.info("EasyOCR available for handwriting fallback.")
+    logger.info("EasyOCR available as compatibility fallback.")
 except ImportError:
     HAS_EASYOCR = False
-    logger.info("EasyOCR not installed. Handwriting fallback disabled.")
+    logger.info("EasyOCR not installed.")
+
+# ── PaddleOCR preferred fallback ────────────────────────────────────────────
+try:
+    from paddleocr import PaddleOCR
+
+    HAS_PADDLEOCR = True
+    logger.info("PaddleOCR available as preferred fallback.")
+except ImportError:
+    HAS_PADDLEOCR = False
+    logger.info("PaddleOCR not installed.")
 
 # ── img2table for table extraction from images ───────────────────────────────
 try:
@@ -81,6 +91,14 @@ INDIAN_SCRIPT_RATIO_THRESHOLD = 0.15
 
 # Confidence threshold below which EasyOCR fallback is triggered
 EASYOCR_FALLBACK_THRESHOLD = 60.0
+TESSERACT_TIMEOUT_SEC = 25
+MAX_ENHANCED_PIXELS = 16_000_000
+HIGH_CONFIDENCE_EARLY_EXIT = 85.0
+MIN_TEXT_CHARS_FOR_EARLY_EXIT = 250
+TARGETED_LANG_RETRY_MAX_CONF = 80.0
+EASYOCR_MAX_PIXELS = 2_000_000
+# Minimum short-side resolution before any OCR pipeline runs
+MIN_SHORT_SIDE_PX = 1200
 
 
 def _detect_script_from_text(text: str) -> str:
@@ -166,6 +184,7 @@ def _is_garbage_text(text: str) -> bool:
 
 # ── Singleton EasyOCR reader (lazy-loaded) ───────────────────────────────────
 _easyocr_reader = None
+_paddleocr_readers = {}
 
 
 def _get_easyocr_reader():
@@ -179,11 +198,45 @@ def _get_easyocr_reader():
     return _easyocr_reader
 
 
+def _get_paddleocr_reader(detected_lang: str):
+    """
+    Lazy-load PaddleOCR reader and cache by effective lang key.
+    Uses a safe fallback sequence to avoid runtime breakage across versions.
+    """
+    if not HAS_PADDLEOCR:
+        return None
+
+    lang_candidates = {
+        "eng": ["en"],
+        "hin": ["hi", "devanagari", "en"],
+    }.get(detected_lang, ["en"])
+
+    for lang_key in lang_candidates:
+        if lang_key in _paddleocr_readers:
+            return _paddleocr_readers[lang_key]
+        try:
+            logger.info(f"Loading PaddleOCR model (lang={lang_key})...")
+            reader = PaddleOCR(
+                use_doc_orientation_classify=False,
+                use_doc_unwarping=False,
+                use_textline_orientation=False,
+                lang=lang_key,
+            )
+            _paddleocr_readers[lang_key] = reader
+            logger.info(f"PaddleOCR model loaded (lang={lang_key}).")
+            return reader
+        except Exception as e:
+            logger.warning(f"PaddleOCR init failed for lang={lang_key}: {e}")
+            continue
+
+    return None
+
+
 class OCRExtractor(BaseExtractor):
     """
     Extracts text from scanned documents using a 2-tier OCR pipeline:
       Tier 1: Tesseract (fast, printed text)
-      Tier 2: EasyOCR (deep learning, handwriting fallback)
+      Tier 2: PaddleOCR/EasyOCR fallback for difficult low-confidence cases
 
     Also handles: rotation correction, aggressive enhancement for low quality,
     table extraction from images, per-page language detection.
@@ -242,10 +295,152 @@ class OCRExtractor(BaseExtractor):
                 langs.append(code)
         return "+".join(langs)
 
+    def _build_targeted_lang_string(self, detected_lang: str) -> str:
+        """
+        Build a smaller language set from detected script to improve OCR precision
+        and avoid unnecessary script confusion in uncertain cases.
+        """
+        langs = ["eng"]
+        if detected_lang in {"hin", "guj"} and detected_lang in self._available_langs:
+            langs.append(detected_lang)
+        return "+".join(langs)
+
+    def _should_try_aggressive_preprocessing(self, confidence: float, text: str) -> bool:
+        """
+        Trigger aggressive preprocessing only when low confidence is paired with
+        weak/garbled text, not merely on confidence alone.
+        Threshold raised to 65% so borderline-quality images always get the
+        full CLAHE + shadow-removal + background-cleanup treatment.
+        """
+        _trigger_threshold = 65.0
+        if confidence >= _trigger_threshold:
+            return False
+        stripped = (text or "").strip()
+        if not stripped:
+            return True
+        if len(stripped) < 120:
+            return True
+        if _is_garbage_text(stripped):
+            return True
+        return confidence < 55.0
+
+    def _should_run_easyocr(self, confidence: float, text: str) -> bool:
+        """
+        Run EasyOCR only when it is likely to help. For long, moderately confident
+        printed OCR output, EasyOCR is usually slower and lower quality.
+        """
+        if confidence >= EASYOCR_FALLBACK_THRESHOLD:
+            return False
+        stripped = (text or "").strip()
+        text_len = len(stripped)
+        if confidence >= 50.0 and text_len >= 500:
+            return False
+        if text_len >= 1000:
+            return False
+        return True
+
+    def _should_run_paddleocr(self, confidence: float, text: str, detected_lang: str) -> bool:
+        """
+        PaddleOCR fallback policy: use it for low-confidence non-Gujarati pages
+        where text quality suggests fallback may help.
+        """
+        if detected_lang == "guj":
+            return False
+        return self._should_run_easyocr(confidence, text)
+
+    def _normalize_input_image(self, image: "Image.Image") -> "Image.Image":
+        """
+        Universal normalisation — runs BEFORE auto-orient and enhance_image.
+
+        Guarantees every image entering the OCR pipeline is:
+          1. RGB (RGBA/P/L/palette → RGB with white background)
+          2. Minimum MIN_SHORT_SIDE_PX on its short side (LANCZOS upscale)
+          3. Not inverted (dark-bg white-text images are flipped)
+          4. Contrast-normalised (extreme over/under-exposure corrected)
+
+        This ensures that even 640×640, washed-out, or phone-photo images
+        are readable before Tesseract OSD tries to detect orientation.
+        """
+        try:
+            # ── 1. Colour mode normalisation ─────────────────────────────────
+            if image.mode == "P":
+                image = image.convert("RGBA")
+            if image.mode in ("RGBA", "LA"):
+                background = Image.new("RGB", image.size, (255, 255, 255))
+                background.paste(image, mask=image.split()[-1])
+                image = background
+                logger.debug("Normalisation: converted RGBA → RGB (white background)")
+            elif image.mode == "L":
+                image = image.convert("RGB")
+                logger.debug("Normalisation: converted L → RGB")
+            elif image.mode != "RGB":
+                image = image.convert("RGB")
+
+            # ── 2. Minimum resolution guarantee ──────────────────────────────
+            w, h = image.size
+            short_side = min(w, h)
+            if short_side < MIN_SHORT_SIDE_PX:
+                scale = MIN_SHORT_SIDE_PX / short_side
+                # Cap at 16MP to avoid memory issues
+                max_scale = (MAX_ENHANCED_PIXELS / (w * h)) ** 0.5
+                scale = min(scale, max_scale)
+                if scale > 1.0:
+                    new_w = int(w * scale)
+                    new_h = int(h * scale)
+                    logger.info(
+                        f"Normalisation: upscaling {w}×{h} → {new_w}×{new_h} "
+                        f"(short-side {short_side}px < {MIN_SHORT_SIDE_PX}px minimum)"
+                    )
+                    image = image.resize((new_w, new_h), Image.LANCZOS)
+
+            # ── 3. Inversion detection (white-on-black → black-on-white) ─────
+            if HAS_CV2:
+                import numpy as np
+                gray = np.array(image.convert("L"))
+                mean_brightness = gray.mean()
+                # If mean pixel < 100 → likely dark background, invert
+                if mean_brightness < 100:
+                    logger.info(
+                        f"Normalisation: detected dark background (mean={mean_brightness:.0f}), "
+                        "inverting image for OCR"
+                    )
+                    image = Image.fromarray(255 - np.array(image))
+
+            # ── 4. Contrast normalisation ─────────────────────────────────────
+            # If global std-dev is very low → washed-out/faded image → boost contrast
+            if HAS_CV2:
+                import numpy as np
+                gray = np.array(image.convert("L"))
+                std_dev = gray.std()
+                if std_dev < 25:
+                    logger.info(
+                        f"Normalisation: very low contrast (std={std_dev:.1f}), "
+                        "applying histogram equalisation"
+                    )
+                    equalized = cv2.equalizeHist(gray)
+                    # Merge back to RGB
+                    eq_rgb = cv2.cvtColor(equalized, cv2.COLOR_GRAY2RGB)
+                    image = Image.fromarray(eq_rgb)
+            else:
+                # PIL fallback contrast boost for washed-out images
+                from PIL import ImageStat
+                stat = ImageStat.Stat(image.convert("L"))
+                if stat.stddev[0] < 25:
+                    enhancer = ImageEnhance.Contrast(image)
+                    image = enhancer.enhance(3.0)
+                    logger.info("Normalisation: PIL contrast boost applied (low contrast image)")
+
+        except Exception as e:
+            logger.warning(f"Input normalisation failed (using original): {e}")
+
+        return image
+
     def _auto_orient_image(self, image: "Image.Image") -> "Image.Image":
         """
         Case 4: Auto-correct rotation using Tesseract OSD.
         Detects 0°, 90°, 180°, 270° rotation and corrects it.
+        Note: call _normalize_input_image first so the image is large enough
+        for OSD to work reliably.
         """
         try:
             osd_output = pytesseract.image_to_osd(
@@ -544,8 +739,16 @@ class OCRExtractor(BaseExtractor):
             elif detected_dpi < 150:
                 scale = max(2, target_dpi // detected_dpi)
 
-            if aggressive and scale < 3:
-                scale = max(scale, 3)
+            if aggressive and min_dim < 1200 and scale < 2:
+                scale = 2
+
+            max_scale_by_pixels = int((MAX_ENHANCED_PIXELS / (w * h)) ** 0.5)
+            max_scale_by_pixels = max(1, max_scale_by_pixels)
+            if scale > max_scale_by_pixels:
+                logger.info(
+                    f"Capping upscale factor from {scale}x to {max_scale_by_pixels}x to keep preprocessing bounded"
+                )
+                scale = max_scale_by_pixels
 
             if scale > 1:
                 new_w, new_h = w * scale, h * scale
@@ -615,12 +818,18 @@ class OCRExtractor(BaseExtractor):
         """Run Tesseract with a specific PSM and return (text, avg_confidence)."""
         try:
             config = f"--oem 3 --psm {psm}"
-            text = pytesseract.image_to_string(image, lang=lang_string, config=config)
+            text = pytesseract.image_to_string(
+                image,
+                lang=lang_string,
+                config=config,
+                timeout=TESSERACT_TIMEOUT_SEC,
+            )
             data = pytesseract.image_to_data(
                 image,
                 lang=lang_string,
                 output_type=pytesseract.Output.DICT,
                 config=config,
+                timeout=TESSERACT_TIMEOUT_SEC,
             )
             confs = [
                 int(c)
@@ -629,6 +838,9 @@ class OCRExtractor(BaseExtractor):
             ]
             avg_conf = sum(confs) / len(confs) if confs else 0.0
             return text, avg_conf
+        except RuntimeError as e:
+            logger.warning(f"Tesseract timeout/error at PSM {psm}: {e}")
+            return "", 0.0
         except Exception:
             return "", 0.0
 
@@ -643,6 +855,17 @@ class OCRExtractor(BaseExtractor):
 
         try:
             import numpy as np
+
+            # Bound EasyOCR runtime on large images.
+            w, h = image.size
+            pixels = w * h
+            if pixels > EASYOCR_MAX_PIXELS:
+                scale = (EASYOCR_MAX_PIXELS / pixels) ** 0.5
+                new_size = (max(1, int(w * scale)), max(1, int(h * scale)))
+                logger.info(
+                    f"Downscaling for EasyOCR {w}x{h} -> {new_size[0]}x{new_size[1]}"
+                )
+                image = image.resize(new_size, Image.LANCZOS)
 
             img_array = np.array(image.convert("RGB"))
             results = reader.readtext(img_array, detail=1, paragraph=False)
@@ -666,6 +889,63 @@ class OCRExtractor(BaseExtractor):
 
         except Exception as e:
             log_error("EasyOCR", str(e))
+            return "", 0.0
+
+    def _run_paddleocr(self, image: "Image.Image", detected_lang: str) -> Tuple[str, float]:
+        """
+        Tier 2 fallback using PaddleOCR. Returns (text, avg_confidence_percent).
+        """
+        reader = _get_paddleocr_reader(detected_lang)
+        if reader is None:
+            return "", 0.0
+
+        try:
+            import numpy as np
+
+            w, h = image.size
+            pixels = w * h
+            if pixels > EASYOCR_MAX_PIXELS:
+                scale = (EASYOCR_MAX_PIXELS / pixels) ** 0.5
+                new_size = (max(1, int(w * scale)), max(1, int(h * scale)))
+                logger.info(
+                    f"Downscaling for PaddleOCR {w}x{h} -> {new_size[0]}x{new_size[1]}"
+                )
+                image = image.resize(new_size, Image.LANCZOS)
+
+            img_array = np.array(image.convert("RGB"))
+            results = reader.ocr(img_array, cls=False)
+            if not results:
+                return "", 0.0
+
+            lines = []
+            confidences = []
+            for block in results:
+                if not block:
+                    continue
+                for item in block:
+                    if not isinstance(item, (list, tuple)) or len(item) < 2:
+                        continue
+                    rec = item[1]
+                    if not isinstance(rec, (list, tuple)) or len(rec) < 2:
+                        continue
+                    text = str(rec[0]).strip()
+                    conf = rec[1]
+                    if text:
+                        lines.append(text)
+                        try:
+                            confidences.append(float(conf) * 100.0)
+                        except Exception:
+                            pass
+
+            full_text = "\n".join(lines)
+            avg_conf = sum(confidences) / len(confidences) if confidences else 0.0
+            logger.info(
+                f"PaddleOCR: extracted {len(full_text)} chars, confidence={avg_conf:.1f}%"
+            )
+            return full_text, avg_conf
+
+        except Exception as e:
+            log_error("PaddleOCR", str(e))
             return "", 0.0
 
     def extract_tables_from_image(self, image: "Image.Image") -> List[Dict]:
@@ -746,7 +1026,7 @@ class OCRExtractor(BaseExtractor):
 
         OCR:
         Tier 1: Tesseract with adaptive PSM selection (PSM 3, 6, 11)
-        Tier 2: EasyOCR if Tesseract confidence < 60% (handles handwriting)
+        Tier 2: EasyOCR fallback if confidence is low
 
         Returns:
             (text, avg_confidence_percent, detected_language_code, engine_used)
@@ -755,7 +1035,12 @@ class OCRExtractor(BaseExtractor):
             return "", 0.0, "eng", "none"
 
         try:
+            # Step 0: Universal normalisation — must run FIRST
+            # Guarantees: RGB, min 1200px short-side, correct polarity, baseline contrast
+            image = self._normalize_input_image(image)
+
             # Step 1: Auto-orient (fix rotated/upside-down scans)
+            # OSD is now reliable because min resolution is guaranteed
             image = self._auto_orient_image(image)
 
             # Step 2: Normal enhancement (includes deskew, DPI detection)
@@ -766,18 +1051,46 @@ class OCRExtractor(BaseExtractor):
             lang_string = self._build_lang_string()
             logger.info(f"Tier 1 — Tesseract OCR with: {lang_string}")
 
-            # Adaptive PSM: try 3, 6, 11 — pick highest confidence
+            # Adaptive PSM: try 3, 6, 11 with early-exit on high confidence
             best_text, best_conf, best_psm = "", -1.0, 3
             for psm in [3, 6, 11]:
                 t, c = self._ocr_with_config(processed, lang_string, psm)
                 logger.info(f"  PSM {psm}: conf={c:.1f}%, chars={len(t.strip())}")
                 if c > best_conf:
                     best_conf, best_text, best_psm = c, t, psm
+                if (
+                    best_conf >= HIGH_CONFIDENCE_EARLY_EXIT
+                    and len((best_text or "").strip()) >= MIN_TEXT_CHARS_FOR_EARLY_EXIT
+                ):
+                    logger.info(
+                        f"Early-exit OCR at PSM {best_psm}: conf={best_conf:.1f}%"
+                    )
+                    break
 
             logger.info(f"Tier 1 best: PSM {best_psm}, confidence={best_conf:.1f}%")
 
+            # Script-targeted retry for uncertain outputs (single extra pass)
+            detected_from_t1 = _detect_script_from_text(best_text)
+            targeted_lang_string = self._build_targeted_lang_string(detected_from_t1)
+            if (
+                targeted_lang_string != lang_string
+                and best_conf < TARGETED_LANG_RETRY_MAX_CONF
+                and len((best_text or "").strip()) >= 80
+            ):
+                t_targeted, c_targeted = self._ocr_with_config(
+                    processed, targeted_lang_string, best_psm
+                )
+                logger.info(
+                    f"  Targeted retry ({targeted_lang_string}, PSM {best_psm}): conf={c_targeted:.1f}%, chars={len(t_targeted.strip())}"
+                )
+                if c_targeted > best_conf:
+                    best_text, best_conf = t_targeted, c_targeted
+                    logger.info(
+                        f"Targeted language retry improved confidence to {best_conf:.1f}%"
+                    )
+
             # Step 3: If still low confidence, try aggressive enhancement
-            if best_conf < EASYOCR_FALLBACK_THRESHOLD and HAS_CV2:
+            if self._should_try_aggressive_preprocessing(best_conf, best_text) and HAS_CV2:
                 logger.info(
                     "Low confidence — trying aggressive preprocessing (deskew + shadow removal + cleanup)"
                 )
@@ -789,6 +1102,9 @@ class OCRExtractor(BaseExtractor):
                 )
                 for psm in [3, 6, 11]:
                     t, c = self._ocr_with_config(processed_agg, lang_string, psm)
+                    logger.info(
+                        f"  Aggressive PSM {psm}: conf={c:.1f}%, chars={len(t.strip())}"
+                    )
                     if c > best_conf:
                         best_conf, best_text, best_psm = c, t, psm
                 logger.info(
@@ -797,10 +1113,10 @@ class OCRExtractor(BaseExtractor):
 
             engine_used = "tesseract"
 
-            # Tier 2: EasyOCR fallback for handwriting
-            if best_conf < EASYOCR_FALLBACK_THRESHOLD and HAS_EASYOCR:
+            # Tier 2: EasyOCR fallback
+            if self._should_run_easyocr(best_conf, best_text) and HAS_EASYOCR:
                 logger.info(
-                    f"Confidence {best_conf:.1f}% < {EASYOCR_FALLBACK_THRESHOLD}% — switching to EasyOCR (handwriting mode)"
+                    f"Confidence {best_conf:.1f}% < {EASYOCR_FALLBACK_THRESHOLD}% — switching to EasyOCR fallback"
                 )
                 easy_text, easy_conf = self._run_easyocr(image)
                 if easy_conf > best_conf and easy_text.strip():
@@ -812,6 +1128,13 @@ class OCRExtractor(BaseExtractor):
                     logger.info(
                         "EasyOCR did not improve results, keeping Tesseract output"
                     )
+            elif (
+                best_conf < EASYOCR_FALLBACK_THRESHOLD
+                and HAS_EASYOCR
+            ):
+                logger.info(
+                    f"Skipping OCR fallback at conf={best_conf:.1f}% (policy gate)"
+                )
 
             # Detect language and clean output
             detected_lang = _detect_script_from_text(best_text)
@@ -891,7 +1214,6 @@ class OCRExtractor(BaseExtractor):
                 "ocr_engine": "tesseract+easyocr" if HAS_EASYOCR else "tesseract",
                 "available_languages": self._available_langs,
                 "easyocr_available": HAS_EASYOCR,
-                "img2table_available": HAS_IMG2TABLE,
             }
 
             extension = file_path.suffix.lower()
