@@ -9,12 +9,13 @@ GET  /api/validate/report/{filename} — retrieve a single audit report
 All endpoints require a valid JWT Bearer token (same as extraction routes).
 """
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, Request
 from fastapi.responses import JSONResponse
 from typing import Optional
 import json
 import time
 import tempfile
+import uuid as _uuid
 from pathlib import Path
 
 from agents.validator.logic import ValidationAgent
@@ -22,7 +23,7 @@ from agents.validator.schemas import AuditReport
 from api.middleware.auth_middleware import get_current_user
 from logger import logger
 import config
-from db.session import get_db
+from db.session import get_db, SessionLocal
 from db import models
 
 router = APIRouter(prefix="/validate", tags=["Validation"])
@@ -38,6 +39,83 @@ def _get_agent() -> ValidationAgent:
     return _agent
 
 
+def _persist_validation(
+    report: AuditReport,
+    current_user,
+    extraction_id: Optional[str] = None,
+    request: Optional[Request] = None,
+):
+    """
+    Save ValidationReport + AuditLog to DB after a validation run.
+    Opens a fresh session to avoid idle-connection timeouts.
+    Errors here are non-fatal — they are logged but not raised.
+    """
+    db = SessionLocal()
+    try:
+        # ── Resolve extraction UUID if provided ────────────────────────────────
+        extraction_uuid = None
+        if extraction_id:
+            try:
+                extraction_uuid = _uuid.UUID(extraction_id)
+            except (ValueError, AttributeError):
+                pass  # extraction_id was a folder name, not a UUID — skip FK
+
+        # ── Derive status & quality_score from report ──────────────────────────
+        status = "passed" if report.is_valid else "failed"
+        quality_score = int((report.confidence_score or 0) * 100)
+
+        # ── Build issues list (serialisable) ───────────────────────────────────
+        issues = []
+        for err in (report.error_log or []):
+            issues.append({
+                "pillar":    err.pillar.value if hasattr(err.pillar, "value") else str(err.pillar),
+                "severity":  err.severity.value if hasattr(err.severity, "value") else str(err.severity),
+                "field":     err.field,
+                "message":   err.message,
+                "expected":  err.expected,
+                "actual":    err.actual,
+            })
+
+        # ── Save ValidationReport ──────────────────────────────────────────────
+        vr = models.ValidationReport(
+            extraction_id=extraction_uuid,        # nullable FK — None if no UUID
+            status=status,
+            issues_jsonb=issues,
+            quality_score=quality_score,
+        )
+        db.add(vr)
+        db.flush()
+
+        # ── Save AuditLog ──────────────────────────────────────────────────────
+        meta = {
+            "document_type":         report.document_type,
+            "confidence_score":      report.confidence_score,
+            "validation_time_sec":   report.validation_time_seconds,
+            "error_count":           sum(1 for e in issues if e["severity"] == "error"),
+            "warning_count":         sum(1 for e in issues if e["severity"] == "warning"),
+        }
+        if request:
+            meta["ip"] = request.client.host if request.client else None
+            meta["user_agent"] = request.headers.get("user-agent")
+
+        al = models.AuditLog(
+            user_id=current_user.id if hasattr(current_user, "id") else None,
+            action="validate",
+            resource_type="extraction" if extraction_uuid else "file",
+            resource_id=str(extraction_uuid) if extraction_uuid else report.source_file,
+            metadata_jsonb=meta,
+        )
+        db.add(al)
+        db.commit()
+        logger.info(f"ValidationReport saved: id={vr.id}, status={status}, score={quality_score}")
+
+    except Exception as exc:
+        db.rollback()
+        logger.error(f"Failed to persist validation report to DB: {exc}")
+    finally:
+        db.close()
+
+
 # ────────────────────────────────────────────────────────────────────────────
 # POST /api/validate/file
 # NOTE: MUST be defined BEFORE /{extraction_id} — otherwise FastAPI would
@@ -50,6 +128,7 @@ def _get_agent() -> ValidationAgent:
     summary="Validate an uploaded JSON or CSV file",
 )
 async def validate_file(
+    request: Request,
     file: UploadFile = File(..., description="JSON or CSV file to validate"),
     document_type: Optional[str] = Query(
         None,
@@ -72,7 +151,6 @@ async def validate_file(
             detail=f"Unsupported file type '{ext}'. Upload .json or .csv",
         )
 
-    # Save to temp location; clean up after validation
     tmp_dir = Path(tempfile.gettempdir()) / "adiva_validation"
     tmp_dir.mkdir(exist_ok=True)
     tmp_path = tmp_dir / f"{int(time.time())}_{file.filename}"
@@ -84,9 +162,11 @@ async def validate_file(
 
         report = agent.validate_file(str(tmp_path))
 
-        # Override document_type if caller specified one
         if document_type:
             report.document_type = document_type
+
+        # Save to DB (non-fatal)
+        _persist_validation(report, current_user, request=request)
 
         return report
 
@@ -113,6 +193,7 @@ async def validate_file(
     summary="Validate a previous extraction",
 )
 async def validate_extraction(
+    request: Request,
     extraction_id: str,
     document_type: Optional[str] = Query(
         None,
@@ -137,7 +218,6 @@ async def validate_extraction(
     # Strategy 1: look up the DB record by UUID to find the stored file path.
     resolved_folder: Optional[str] = None
     try:
-        import uuid as _uuid
         _uuid.UUID(extraction_id)          # raises ValueError if not a valid UUID
         output_record = (
             db.query(models.ExtractionOutput)
@@ -149,8 +229,8 @@ async def validate_extraction(
             .first()
         )
         if output_record and output_record.storage_uri:
-                # Pass the full absolute path — logic.py handles it
-                resolved_folder = output_record.storage_uri
+            # Pass the full absolute path — logic.py handles it
+            resolved_folder = output_record.storage_uri
     except ValueError:
         # extraction_id is not a UUID — treat it as a folder name directly
         resolved_folder = extraction_id
@@ -163,6 +243,10 @@ async def validate_extraction(
 
     try:
         report = agent.validate_extraction(resolved_folder, document_type=document_type)
+
+        # Save to DB (non-fatal)
+        _persist_validation(report, current_user, extraction_id=extraction_id, request=request)
+
         return report
     except Exception as exc:
         logger.error(f"Validation failed for {extraction_id} (resolved: {resolved_folder}): {exc}")

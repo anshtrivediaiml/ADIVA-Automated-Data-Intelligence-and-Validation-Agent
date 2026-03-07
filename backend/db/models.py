@@ -90,7 +90,7 @@ class ValidationReport(Base):
     __tablename__ = "validation_reports"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    extraction_id = Column(UUID(as_uuid=True), ForeignKey("extractions.id"), nullable=False)
+    extraction_id = Column(UUID(as_uuid=True), ForeignKey("extractions.id"), nullable=True)
     status = Column(String(32), nullable=False, default="pending")
     issues_jsonb = Column(JSONB, nullable=True)
     quality_score = Column(Integer, nullable=True)

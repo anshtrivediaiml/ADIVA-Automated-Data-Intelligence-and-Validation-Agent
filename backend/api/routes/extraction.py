@@ -248,7 +248,28 @@ async def extract_document(
 
             db.commit()
             response.extraction_id = str(extraction.id)
+
+            # AuditLog — record the extract action
+            try:
+                db.add(models.AuditLog(
+                    user_id=current_user.id,
+                    action="extract",
+                    resource_type="document",
+                    resource_id=str(document.id),
+                    metadata_jsonb={
+                        "filename": file.filename,
+                        "extraction_id": str(extraction.id),
+                        "document_type": result.get("classification", {}).get("document_type"),
+                        "processing_time_sec": round(processing_time, 2),
+                    },
+                ))
+                db.commit()
+            except Exception as al_exc:
+                logger.warning(f"AuditLog save failed (non-fatal): {al_exc}")
+                db.rollback()
+
             logger.info(f"Extraction saved to DB: {response.extraction_id} in {processing_time:.2f}s")
+
 
         except Exception as db_exc:
             db.rollback()
