@@ -1,0 +1,154 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    restart: unless-stopped
+    environment:
+      # ── Required ──────────────────────────────────────────────
+      DATABASE_URL:           ${DATABASE_URL}
+      MISTRAL_API_KEY:        ${MISTRAL_API_KEY}
+      JWT_SECRET_KEY:         ${JWT_SECRET_KEY}
+
+      # ── Admin seed ────────────────────────────────────────────
+      ADMIN_EMAIL:            ${ADMIN_EMAIL}
+      ADMIN_PASSWORD:         ${ADMIN_PASSWORD}
+      ADMIN_NAME:             ${ADMIN_NAME:-Admin}
+      ADMIN_USERNAME:         ${ADMIN_USERNAME:-admin}
+      ADMIN_ROLE:             ${ADMIN_ROLE:-admin}
+      ADMIN_DELETE_EMAILS:    ${ADMIN_DELETE_EMAILS}
+
+      # ── Project settings ─────────────────────────────────────
+      PROJECT_NAME:           ${PROJECT_NAME:-ADIVA}
+      LOG_LEVEL:              ${LOG_LEVEL:-INFO}
+      LOG_COLORIZE:           ${LOG_COLORIZE:-False}
+      DEBUG_MODE:             ${DEBUG_MODE:-False}
+      API_SHOW_ERROR_DETAILS: ${API_SHOW_ERROR_DETAILS:-False}
+
+      # ── API server ────────────────────────────────────────────
+      API_HOST:               0.0.0.0
+      API_PORT:               8000
+      CORS_ORIGINS:           ${CORS_ORIGINS:-http://localhost}
+
+      # ── Execution backend (local, no Celery) ─────────────────
+      JOB_EXECUTION_BACKEND:  ${JOB_EXECUTION_BACKEND:-local}
+      CELERY_BROKER_URL:      ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND:  ${CELERY_RESULT_BACKEND:-redis://redis:6379/0}
+
+      # ── Mistral settings ──────────────────────────────────────
+      MISTRAL_MODEL:                 ${MISTRAL_MODEL:-mistral-large-latest}
+      MISTRAL_TEMPERATURE:           ${MISTRAL_TEMPERATURE:-0.7}
+      MISTRAL_MAX_TOKENS:            ${MISTRAL_MAX_TOKENS:-1000}
+      MISTRAL_TIMEOUT_MS:            ${MISTRAL_TIMEOUT_MS:-12000}
+      MISTRAL_MAX_RETRIES:           ${MISTRAL_MAX_RETRIES:-2}
+
+      # ── OCR ───────────────────────────────────────────────────
+      OCR_PDF_RENDER_DPI:     ${OCR_PDF_RENDER_DPI:-300}
+      OCR_PDF_RENDER_THREADS: ${OCR_PDF_RENDER_THREADS:-2}
+      OCR_PAGE_WORKERS:       ${OCR_PAGE_WORKERS:-2}
+      MAX_FILE_SIZE:          ${MAX_FILE_SIZE:-209715200}
+
+      # ── Auth ──────────────────────────────────────────────────
+      JWT_ACCESS_TOKEN_EXPIRE_MINUTES:  ${JWT_ACCESS_TOKEN_EXPIRE_MINUTES:-60}
+      JWT_REFRESH_TOKEN_EXPIRE_DAYS:    ${JWT_REFRESH_TOKEN_EXPIRE_DAYS:-7}
+
+      # ── Review thresholds ─────────────────────────────────────
+      ENABLE_AI_RECOVERY:     ${ENABLE_AI_RECOVERY:-False}
+
+    volumes:
+      - outputs:/app/outputs    # Persist uploaded files and results
+
+    expose:
+      - "8000"                  # Internal only — nginx proxies here
+
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health/live')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        VITE_API_BASE_URL: ""  # Empty — nginx handles /api proxy internally
+    restart: unless-stopped
+    ports:
+      - "80:80"                 # Public-facing port
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  redis:
+    image: redis:7-alpine
+    profiles: ["celery"]
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  celery-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    profiles: ["celery"]
+    restart: unless-stopped
+    command:
+      [
+        "sh",
+        "-c",
+        "celery -A backend.orchestration.tasks:celery_app worker --loglevel=${CELERY_LOG_LEVEL:-info} --concurrency=${CELERY_WORKER_CONCURRENCY:-2}"
+      ]
+    environment:
+      DATABASE_URL:           ${DATABASE_URL}
+      MISTRAL_API_KEY:        ${MISTRAL_API_KEY}
+      JWT_SECRET_KEY:         ${JWT_SECRET_KEY}
+      ADMIN_EMAIL:            ${ADMIN_EMAIL}
+      ADMIN_PASSWORD:         ${ADMIN_PASSWORD}
+      ADMIN_NAME:             ${ADMIN_NAME:-Admin}
+      ADMIN_USERNAME:         ${ADMIN_USERNAME:-admin}
+      ADMIN_ROLE:             ${ADMIN_ROLE:-admin}
+      ADMIN_DELETE_EMAILS:    ${ADMIN_DELETE_EMAILS}
+      PROJECT_NAME:           ${PROJECT_NAME:-ADIVA}
+      LOG_LEVEL:              ${LOG_LEVEL:-INFO}
+      LOG_COLORIZE:           ${LOG_COLORIZE:-False}
+      DEBUG_MODE:             ${DEBUG_MODE:-False}
+      API_SHOW_ERROR_DETAILS: ${API_SHOW_ERROR_DETAILS:-False}
+      API_HOST:               0.0.0.0
+      API_PORT:               8000
+      CORS_ORIGINS:           ${CORS_ORIGINS:-http://localhost}
+      JOB_EXECUTION_BACKEND:  celery
+      CELERY_BROKER_URL:      ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND:  ${CELERY_RESULT_BACKEND:-redis://redis:6379/0}
+      MISTRAL_MODEL:                 ${MISTRAL_MODEL:-mistral-large-latest}
+      MISTRAL_TEMPERATURE:           ${MISTRAL_TEMPERATURE:-0.7}
+      MISTRAL_MAX_TOKENS:            ${MISTRAL_MAX_TOKENS:-1000}
+      MISTRAL_TIMEOUT_MS:            ${MISTRAL_TIMEOUT_MS:-12000}
+      MISTRAL_MAX_RETRIES:           ${MISTRAL_MAX_RETRIES:-2}
+      OCR_PDF_RENDER_DPI:     ${OCR_PDF_RENDER_DPI:-300}
+      OCR_PDF_RENDER_THREADS: ${OCR_PDF_RENDER_THREADS:-2}
+      OCR_PAGE_WORKERS:       ${OCR_PAGE_WORKERS:-2}
+      MAX_FILE_SIZE:          ${MAX_FILE_SIZE:-209715200}
+      JWT_ACCESS_TOKEN_EXPIRE_MINUTES:  ${JWT_ACCESS_TOKEN_EXPIRE_MINUTES:-60}
+      JWT_REFRESH_TOKEN_EXPIRE_DAYS:    ${JWT_REFRESH_TOKEN_EXPIRE_DAYS:-7}
+      ENABLE_AI_RECOVERY:     ${ENABLE_AI_RECOVERY:-False}
+    volumes:
+      - outputs:/app/outputs
+    depends_on:
+      backend:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  outputs:
+    driver: local
+  redis_data:
+    driver: local

@@ -1,0 +1,48 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Node / Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Environment & secrets
+.env
+*.env.local
+
+# Output data (runtime volume)
+outputs/
+
+# Dev tooling & docs
+.git/
+.gitignore
+.vscode/
+.paddlex/
+*.md
+*.pptx
+
+# Test artifacts
+tests/
+QA/
+test_images/
+data/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Large model cache — PaddleOCR downloads these at first run
+# (or mount as a named volume if you pre-bake them)
+.paddleocr/

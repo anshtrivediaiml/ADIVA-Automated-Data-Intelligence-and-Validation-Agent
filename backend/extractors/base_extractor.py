@@ -8,7 +8,11 @@ Defines the common interface for all extractors.
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Dict, Any
-from logger import logger
+
+try:
+    from logger import logger
+except ModuleNotFoundError:
+    from backend.logger import logger
 
 
 class BaseExtractor(ABC):

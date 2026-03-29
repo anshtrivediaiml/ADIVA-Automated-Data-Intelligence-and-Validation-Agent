@@ -90,13 +90,15 @@ class ErrorResponse(BaseModel):
     status: str = "error"
     message: str
     detail: Optional[str] = None
+    request_id: Optional[str] = None
     
     class Config:
         json_schema_extra = {
             "example": {
                 "status": "error",
                 "message": "File upload failed",
-                "detail": "File size exceeds maximum allowed size"
+                "detail": "File size exceeds maximum allowed size",
+                "request_id": "7b1918e905bf43ca8ddadf9da5768307"
             }
         }
 
@@ -120,3 +122,271 @@ class HealthResponse(BaseModel):
                 }
             }
         }
+
+
+class JobSubmissionResponse(BaseModel):
+    """Planned async submission contract for Phase 2 orchestration."""
+
+    job_id: str
+    document_id: str
+    status: str
+    submitted_at: datetime
+    status_url: str
+    result_url: str
+
+
+class BatchJobItem(BaseModel):
+    """Single job created from a batch submission."""
+
+    job_id: str
+    filename: str
+    status: str
+    status_url: str
+
+
+class BatchSubmissionResponse(BaseModel):
+    """Planned async batch submission contract for Phase 2 orchestration."""
+
+    batch_id: str
+    status: str
+    total_documents: int
+    submitted_at: datetime
+    jobs: List[BatchJobItem] = Field(default_factory=list)
+
+
+class JobStatusResponse(BaseModel):
+    """Planned status payload for orchestrated processing jobs."""
+
+    job_id: str
+    document_id: str
+    file_name: Optional[str] = None
+    document_type: Optional[str] = None
+    ocr_confidence: Optional[float] = None
+    overall_confidence: Optional[float] = None
+    status: str
+    current_stage: Optional[str] = None
+    submitted_at: datetime
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+    retry_count: int = 0
+    review_required: bool = False
+    failure_reason: Optional[str] = None
+    validation_decision: Optional[str] = None
+    validation_summary: Optional[Dict[str, Any]] = None
+    review_case_id: Optional[str] = None
+    review_status: Optional[str] = None
+    review_priority: Optional[str] = None
+    review_open_field_count: int = 0
+    critical_review_open_field_count: int = 0
+    recovery_attempt_count: int = 0
+    timings: Dict[str, float] = Field(default_factory=dict)
+
+
+class JobResultResponse(BaseModel):
+    """Planned final result contract for async orchestration."""
+
+    job_id: str
+    status: str
+    document_type: Optional[str] = None
+    confidence: Optional[float] = None
+    validation_decision: Optional[str] = None
+    validation_summary: Optional[Dict[str, Any]] = None
+    review_reasons: List[str] = Field(default_factory=list)
+    artifacts: Dict[str, str] = Field(default_factory=dict)
+
+
+class ResultFlaggedFieldResponse(BaseModel):
+    """Open flagged field shown alongside a result payload."""
+
+    field_item_id: str
+    id: str
+    field_path: str
+    display_label: str
+    label: str
+    reason_code: str
+    validation_message: str
+    message: str
+    original_value: Any = None
+    proposed_value: Any = None
+    evidence_text: Optional[str] = None
+    is_critical: bool = False
+    priority_score: int = 0
+
+
+class ResultResponse(BaseModel):
+    """Frontend-friendly terminal result payload."""
+
+    job_id: str
+    status: str
+    file_name: Optional[str] = None
+    document_type: Optional[str] = None
+    doc_type: Optional[str] = None
+    structured_data: Optional[Dict[str, Any]] = None
+    confidence: Optional[Dict[str, Any]] = None
+    detected_language: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    review_required: bool = False
+    validation_decision: Optional[str] = None
+    validation_summary: Optional[Dict[str, Any]] = None
+    failure_reason: Optional[str] = None
+    review_case_id: Optional[str] = None
+    review_status: Optional[str] = None
+    review_priority: Optional[str] = None
+    review_open_field_count: int = 0
+    critical_review_open_field_count: int = 0
+    review_summary: Dict[str, Any] = Field(default_factory=dict)
+    recovery_attempt_count: int = 0
+    unresolved_review_fields: List[ResultFlaggedFieldResponse] = Field(default_factory=list)
+    artifacts: Dict[str, str] = Field(default_factory=dict)
+
+
+class ReviewFieldItemResponse(BaseModel):
+    """Single unresolved or reviewed field within a review case."""
+
+    field_item_id: str
+    id: str
+    field_path: str
+    status: str
+    reason_code: str
+    display_label: Optional[str] = None
+    label: Optional[str] = None
+    is_critical: bool = False
+    field_confidence: Optional[float] = None
+    original_value: Any = None
+    proposed_value: Any = None
+    final_value: Any = None
+    evidence_text: Optional[str] = None
+    evidence_snippet: Optional[str] = None
+    validation_message: Optional[str] = None
+    ui_message: Optional[str] = None
+    message: Optional[str] = None
+    priority_score: int = 0
+    recovery_attempt_number: Optional[int] = None
+
+
+class FieldCorrectionResponse(BaseModel):
+    """Audit trail entry for a reviewed field correction."""
+
+    correction_id: str
+    field_item_id: str
+    field_path: str
+    correction_source: str
+    old_value: Any = None
+    new_value: Any = None
+    correction_reason: Optional[str] = None
+    corrected_by_user_id: Optional[str] = None
+    created_at: datetime
+
+
+class ReviewCaseListItem(BaseModel):
+    """Summary row for a review case listing."""
+
+    review_id: str
+    id: str
+    job_id: str
+    document_id: Optional[str] = None
+    filename: Optional[str] = None
+    file_name: Optional[str] = None
+    document_type: Optional[str] = None
+    doc_type: Optional[str] = None
+    source_job_status: str
+    review_status: str
+    status: str
+    priority: str
+    priority_score: int = 0
+    created_at: datetime
+    updated_at: datetime
+    resolved_at: Optional[datetime] = None
+    reason_codes: List[str] = Field(default_factory=list)
+    open_field_count: int = 0
+    critical_open_field_count: int = 0
+    next_recommended_field: Optional[str] = None
+    review_summary: Dict[str, Any] = Field(default_factory=dict)
+    age_bucket: str = "fresh"
+
+
+class ReviewCaseListResponse(BaseModel):
+    """Paginated review-case listing."""
+
+    total: int
+    page: int
+    page_size: int
+    review_cases: List[ReviewCaseListItem] = Field(default_factory=list)
+    reviews: List[ReviewCaseListItem] = Field(default_factory=list)
+
+
+class ReviewCaseDetailResponse(BaseModel):
+    """Detailed review case payload."""
+
+    review_id: str
+    id: str
+    job_id: str
+    document_id: Optional[str] = None
+    filename: Optional[str] = None
+    file_name: Optional[str] = None
+    document_type: Optional[str] = None
+    doc_type: Optional[str] = None
+    source_job_status: str
+    review_status: str
+    status: str
+    priority: str
+    priority_score: int = 0
+    validation_decision: Optional[str] = None
+    reason_codes: List[str] = Field(default_factory=list)
+    review_summary: Dict[str, Any] = Field(default_factory=dict)
+    validation_summary: Optional[Dict[str, Any]] = None
+    created_at: datetime
+    updated_at: datetime
+    resolved_at: Optional[datetime] = None
+    open_field_count: int = 0
+    resolved_field_count: int = 0
+    critical_open_field_count: int = 0
+    next_recommended_field: Optional[str] = None
+    artifacts: Dict[str, str] = Field(default_factory=dict)
+    fields: List[ReviewFieldItemResponse] = Field(default_factory=list)
+    review_fields: List[ReviewFieldItemResponse] = Field(default_factory=list)
+    corrections: List[FieldCorrectionResponse] = Field(default_factory=list)
+
+
+class ReviewFieldDecisionRequest(BaseModel):
+    """Reviewer decision for a field item."""
+
+    action: str = Field(..., description="One of: corrected, accept_original, accept_ai_proposal")
+    value: Optional[Any] = Field(None, description="Required when action='corrected'")
+    correction_reason: Optional[str] = None
+
+
+class ReviewCaseResolveRequest(BaseModel):
+    """Resolve a review case after all fields are addressed."""
+
+    resolution_notes: Optional[str] = None
+
+
+class RecoveryAttemptResponse(BaseModel):
+    """Single logged recovery attempt."""
+
+    attempt_id: str
+    job_id: str
+    review_case_id: Optional[str] = None
+    attempt_number: int
+    mode: str
+    strategy: str
+    status: str
+    model_name: Optional[str] = None
+    weak_fields: List[str] = Field(default_factory=list)
+    reason_codes: List[str] = Field(default_factory=list)
+    input_summary: Dict[str, Any] = Field(default_factory=dict)
+    output_summary: Dict[str, Any] = Field(default_factory=dict)
+    improvement_score: Optional[float] = None
+    accepted: Optional[bool] = None
+    failure_reason: Optional[str] = None
+    started_at: datetime
+    finished_at: Optional[datetime] = None
+
+
+class RecoveryAttemptListResponse(BaseModel):
+    """List of recovery attempts for one job."""
+
+    job_id: str
+    total: int
+    attempts: List[RecoveryAttemptResponse] = Field(default_factory=list)

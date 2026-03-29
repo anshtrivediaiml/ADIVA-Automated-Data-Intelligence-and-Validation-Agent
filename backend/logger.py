@@ -14,29 +14,37 @@ import config
 # Remove default handler
 logger.remove()
 
-# Add console handler with color
+# Add console handler
 logger.add(
     sys.stderr,
-    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+    format="{time:YYYY-MM-DD HH:mm:ss} | <level>{level: <8}</level> | {name}:{function}:{line} - {message}",
     level=config.LOG_LEVEL,
-    colorize=True
+    colorize=config.LOG_COLORIZE
 )
 
 # Add file handler with timestamped filename
 log_file = config.get_log_filename()
-logger.add(
-    log_file,
-    format="[{time:YYYY-MM-DD HH:mm:ss}] [{name}] [{level}] {message}",
-    level=config.LOG_LEVEL,
-    rotation=config.LOG_ROTATION,
-    retention=config.LOG_RETENTION,
-    compression="zip",
-    backtrace=True,
-    diagnose=True
-)
+file_logging_enabled = False
+try:
+    logger.add(
+        log_file,
+        format="[{time:YYYY-MM-DD HH:mm:ss}] [{name}] [{level}] {message}",
+        level=config.LOG_LEVEL,
+        rotation=config.LOG_ROTATION,
+        retention=config.LOG_RETENTION,
+        compression="zip",
+        backtrace=config.DEBUG_MODE,
+        diagnose=config.DEBUG_MODE
+    )
+    file_logging_enabled = True
+except OSError as exc:
+    logger.warning(f"File logging disabled because log sink could not be opened: {exc}")
 
 # Log startup
-logger.info(f"Logging system initialized - Log file: {log_file}")
+if file_logging_enabled:
+    logger.info(f"Logging system initialized - Log file: {log_file}")
+else:
+    logger.info("Logging system initialized - console logging only")
 logger.info(f"Log level: {config.LOG_LEVEL}")
 
 

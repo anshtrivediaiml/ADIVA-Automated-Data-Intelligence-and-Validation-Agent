@@ -4,9 +4,14 @@ Enhanced Confidence Scoring Module
 Provides multi-metric confidence scoring for extraction quality.
 """
 
+import re
 from datetime import date, datetime
 from typing import Dict, Any, List, Optional
-from schemas import get_schema
+
+try:
+    from schemas import get_schema
+except ModuleNotFoundError:
+    from backend.schemas import get_schema
 
 
 class ConfidenceScorer:
@@ -74,6 +79,11 @@ class ConfidenceScorer:
             metrics[key] * self.weights[key] 
             for key in self.weights.keys()
         )
+
+        if metrics['consistency'] < 0.2:
+            overall = min(overall, 0.55)
+        elif metrics['consistency'] < 0.5:
+            overall = min(overall, 0.69)
         
         # Add explanations
         explanations = self._generate_explanations(metrics)
@@ -146,6 +156,22 @@ class ConfidenceScorer:
         # TODO: Extract field-level confidence from LLM responses
         # For now, assume high confidence
         return 0.9
+
+    def _coerce_numeric(self, value: Any) -> Optional[float]:
+        if value in (None, ""):
+            return None
+        if isinstance(value, (int, float)):
+            return float(value)
+        if isinstance(value, str):
+            cleaned = value.strip().replace(",", "")
+            cleaned = re.sub(r"[^\d.\-]", "", cleaned)
+            if cleaned in {"", "-", ".", "-."}:
+                return None
+            try:
+                return float(cleaned)
+            except ValueError:
+                return None
+        return None
 
     def _parse_date(self, value: Any) -> Optional[date]:
         """Parse common date representations into a date, else None."""
@@ -225,7 +251,65 @@ class ConfidenceScorer:
                 expiration_date = self._parse_date(data.get('expiration_date'))
                 if effective_date and expiration_date and effective_date > expiration_date:
                     issues += 1
-        
+
+        elif doc_type == 'bank_statement':
+            transactions = data.get('transactions') or []
+            if isinstance(transactions, list) and transactions:
+                previous_balance = self._coerce_numeric(data.get('opening_balance'))
+                total_debits = 0.0
+                total_credits = 0.0
+
+                for row in transactions:
+                    if not isinstance(row, dict):
+                        continue
+
+                    debit = self._coerce_numeric(row.get('debit'))
+                    credit = self._coerce_numeric(
+                        row.get('credit') if row.get('credit') not in (None, '') else row.get('amount')
+                    )
+                    balance = self._coerce_numeric(row.get('balance'))
+
+                    if debit is not None:
+                        total_debits += debit
+                    if credit is not None:
+                        total_credits += credit
+
+                    if debit is not None and credit is not None and debit > 0 and credit > 0:
+                        checks += 1
+                        issues += 1
+
+                    if (
+                        previous_balance is not None
+                        and balance is not None
+                        and (debit is not None or credit is not None)
+                    ):
+                        checks += 1
+                        expected_balance = round(previous_balance - (debit or 0.0) + (credit or 0.0), 2)
+                        if abs(expected_balance - balance) > 1.0:
+                            issues += 1
+
+                    if balance is not None:
+                        previous_balance = balance
+                    elif previous_balance is not None and (debit is not None or credit is not None):
+                        previous_balance = round(previous_balance - (debit or 0.0) + (credit or 0.0), 2)
+
+                closing_balance = self._coerce_numeric(data.get('closing_balance'))
+                if previous_balance is not None and closing_balance is not None:
+                    checks += 1
+                    if abs(previous_balance - closing_balance) > 1.0:
+                        issues += 1
+
+                stated_total_debits = self._coerce_numeric(data.get('total_debits'))
+                stated_total_credits = self._coerce_numeric(data.get('total_credits'))
+                if stated_total_debits is not None:
+                    checks += 1
+                    if abs(stated_total_debits - round(total_debits, 2)) > 1.0:
+                        issues += 1
+                if stated_total_credits is not None:
+                    checks += 1
+                    if abs(stated_total_credits - round(total_credits, 2)) > 1.0:
+                        issues += 1
+
         if checks == 0:
             return 1.0
         

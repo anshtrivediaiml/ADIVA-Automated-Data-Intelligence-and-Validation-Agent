@@ -38,6 +38,17 @@ from schemas.financial_schemas import (
     GSTCertificateSchema,
 )
 
+# Extended business / finance schemas
+from schemas.extended_business_schemas import (
+    PurchaseOrderSchema,
+    RetailReceiptSchema,
+    BillOfLadingSchema,
+    LabReportSchema,
+    PayslipSchema,
+    BalanceSheetSchema,
+    IncomeTaxAcknowledgmentSchema,
+)
+
 # Government / civil record schemas
 from schemas.govt_schemas import (
     BirthCertificateSchema,
@@ -72,6 +83,13 @@ SCHEMA_REGISTRY = {
     'form_16':          Form16Schema(),
     'insurance_policy': InsurancePolicySchema(),
     'gst_certificate':  GSTCertificateSchema(),
+    'purchase_order':   PurchaseOrderSchema(),
+    'retail_receipt':   RetailReceiptSchema(),
+    'bill_of_lading':   BillOfLadingSchema(),
+    'lab_report':       LabReportSchema(),
+    'payslip':          PayslipSchema(),
+    'balance_sheet':    BalanceSheetSchema(),
+    'income_tax_acknowledgment': IncomeTaxAcknowledgmentSchema(),
 
     # ── Civil records ──────────────────────────────────────────────────
     'birth_certificate':  BirthCertificateSchema(),
@@ -105,6 +123,9 @@ __all__ = [
     'AadharCardSchema', 'PanCardSchema', 'DrivingLicenceSchema', 'PassportSchema',
     # Financial
     'ChequeSchema', 'Form16Schema', 'InsurancePolicySchema', 'GSTCertificateSchema',
+    'PurchaseOrderSchema', 'RetailReceiptSchema', 'BillOfLadingSchema',
+    'LabReportSchema', 'PayslipSchema', 'BalanceSheetSchema',
+    'IncomeTaxAcknowledgmentSchema',
     # Civil records
     'BirthCertificateSchema', 'DeathCertificateSchema', 'LandRecordSchema', 'NREGACardSchema',
     # Registry

@@ -12,8 +12,20 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
-load_dotenv()
+# Load environment variables from .env file at project root (parent of backend/)
+_ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
+load_dotenv(dotenv_path=_ENV_FILE, override=False)
+
+
+def _get_bool_env(name: str, default: bool) -> bool:
+    """Parse a boolean environment variable with a sane fallback."""
+    return os.getenv(name, str(default)).strip().lower() == "true"
+
+
+def _get_csv_env(name: str, default: str) -> list[str]:
+    """Parse a comma-separated environment variable into a clean list."""
+    raw_value = os.getenv(name, default)
+    return [item.strip() for item in raw_value.split(",") if item.strip()]
 
 # ========================
 # Environment Variables
@@ -23,6 +35,7 @@ MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
 PROJECT_NAME = os.getenv("PROJECT_NAME", "ADIVA")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 DATABASE_URL = os.getenv("DATABASE_URL")
+TESSERACT_CMD_PATH = os.getenv("TESSERACT_CMD_PATH")
 
 # ========================
 # JWT Authentication
@@ -60,13 +73,15 @@ OUTPUTS_DIR = BASE_DIR / "outputs"
 EXTRACTED_DIR = OUTPUTS_DIR / "extracted"
 VALIDATED_DIR = OUTPUTS_DIR / "validated"
 LOGS_DIR = OUTPUTS_DIR / "logs"
+UPLOADS_DIR = OUTPUTS_DIR / "uploads"
+METRICS_DIR = OUTPUTS_DIR / "metrics"
 
 # Data directories
 DATA_DIR = BASE_DIR / "data"
 SAMPLES_DIR = DATA_DIR / "samples"
 
 # Ensure all directories exist
-for directory in [EXTRACTED_DIR, VALIDATED_DIR, LOGS_DIR, SAMPLES_DIR]:
+for directory in [EXTRACTED_DIR, VALIDATED_DIR, LOGS_DIR, UPLOADS_DIR, METRICS_DIR, SAMPLES_DIR]:
     directory.mkdir(parents=True, exist_ok=True)
 
 # ========================
@@ -82,13 +97,35 @@ ALLOWED_EXTENSIONS = {".pdf", ".docx", ".png", ".jpg", ".jpeg", ".tiff", ".bmp"}
 # Streamed upload chunk size (bytes)
 UPLOAD_CHUNK_SIZE = int(os.getenv("UPLOAD_CHUNK_SIZE", str(1024 * 1024)))
 
+# OCR / PDF processing settings
+OCR_PDF_RENDER_DPI = int(os.getenv("OCR_PDF_RENDER_DPI", "300"))
+OCR_PDF_RENDER_THREADS = int(os.getenv("OCR_PDF_RENDER_THREADS", "2"))
+OCR_PAGE_WORKERS = int(os.getenv("OCR_PAGE_WORKERS", "2"))
+MAX_OCR_IMAGE_PIXELS = int(os.getenv("MAX_OCR_IMAGE_PIXELS", "3000000"))
+
 # ========================
 # API Settings
 # ========================
 
 API_HOST = os.getenv("API_HOST", "0.0.0.0")
 API_PORT = int(os.getenv("API_PORT", "8000"))
+API_WORKERS = int(os.getenv("API_WORKERS", "2"))
 DEBUG_MODE = os.getenv("DEBUG_MODE", "False").lower() == "true"
+API_SHOW_ERROR_DETAILS = _get_bool_env("API_SHOW_ERROR_DETAILS", DEBUG_MODE)
+READINESS_CACHE_TTL_SECONDS = float(os.getenv("READINESS_CACHE_TTL_SECONDS", "3"))
+METRICS_SNAPSHOT_MIN_INTERVAL_SECONDS = float(
+    os.getenv("METRICS_SNAPSHOT_MIN_INTERVAL_SECONDS", "2")
+)
+CORS_ORIGINS = _get_csv_env(
+    "CORS_ORIGINS",
+    "http://localhost:3000,http://localhost:8000,http://127.0.0.1:3000"
+)
+REQUEST_ID_HEADER = os.getenv("REQUEST_ID_HEADER", "X-Request-ID")
+ENABLE_SECURITY_HEADERS = _get_bool_env("ENABLE_SECURITY_HEADERS", True)
+HSTS_MAX_AGE_SECONDS = int(os.getenv("HSTS_MAX_AGE_SECONDS", "0"))
+JOB_EXECUTION_BACKEND = os.getenv("JOB_EXECUTION_BACKEND", "local").strip().lower()
+CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
+CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", CELERY_BROKER_URL)
 
 # ========================
 # Mistral AI Settings
@@ -97,6 +134,46 @@ DEBUG_MODE = os.getenv("DEBUG_MODE", "False").lower() == "true"
 MISTRAL_MODEL = os.getenv("MISTRAL_MODEL", "mistral-large-latest")
 MISTRAL_TEMPERATURE = float(os.getenv("MISTRAL_TEMPERATURE", "0.7"))
 MISTRAL_MAX_TOKENS = int(os.getenv("MISTRAL_MAX_TOKENS", "1000"))
+MISTRAL_TIMEOUT_MS = int(os.getenv("MISTRAL_TIMEOUT_MS", "12000"))
+MISTRAL_MAX_RETRIES = int(os.getenv("MISTRAL_MAX_RETRIES", "2"))
+MISTRAL_RETRY_BACKOFF_MS = int(os.getenv("MISTRAL_RETRY_BACKOFF_MS", "800"))
+
+# Extraction review gates
+REVIEW_MIN_QUALITY_SCORE = float(os.getenv("REVIEW_MIN_QUALITY_SCORE", "0.65"))
+REVIEW_MIN_OCR_CONFIDENCE = float(os.getenv("REVIEW_MIN_OCR_CONFIDENCE", "0.70"))
+LOW_CONFIDENCE_MIN_OCR = float(os.getenv("LOW_CONFIDENCE_MIN_OCR", "0.50"))
+REVIEW_MIN_CLASSIFICATION_CONFIDENCE = float(
+    os.getenv("REVIEW_MIN_CLASSIFICATION_CONFIDENCE", "0.60")
+)
+REVIEW_MIN_EXTRACTION_CONFIDENCE = float(
+    os.getenv("REVIEW_MIN_EXTRACTION_CONFIDENCE", "0.72")
+)
+LOW_CONFIDENCE_MIN_EXTRACTION = float(
+    os.getenv("LOW_CONFIDENCE_MIN_EXTRACTION", "0.55")
+)
+VALIDATION_PASS_MIN_CONFIDENCE = float(
+    os.getenv("VALIDATION_PASS_MIN_CONFIDENCE", "0.80")
+)
+VALIDATION_LOW_CONFIDENCE_SCORE = float(
+    os.getenv("VALIDATION_LOW_CONFIDENCE_SCORE", "0.55")
+)
+VALIDATION_ENABLE_TRUTH_TESTS = _get_bool_env("VALIDATION_ENABLE_TRUTH_TESTS", False)
+VALIDATION_TRUTH_TEST_WEIGHT = float(
+    os.getenv("VALIDATION_TRUTH_TEST_WEIGHT", "0.20")
+)
+ENABLE_AI_RECOVERY = _get_bool_env("ENABLE_AI_RECOVERY", True)
+AI_RECOVERY_SHADOW_MODE = _get_bool_env("AI_RECOVERY_SHADOW_MODE", False)
+AI_RECOVERY_MAX_ATTEMPTS = int(os.getenv("AI_RECOVERY_MAX_ATTEMPTS", "2"))
+AI_RECOVERY_MIN_IMPROVEMENT = float(os.getenv("AI_RECOVERY_MIN_IMPROVEMENT", "0.05"))
+AI_RECOVERY_MIN_ACCEPT_CONFIDENCE = float(
+    os.getenv("AI_RECOVERY_MIN_ACCEPT_CONFIDENCE", str(VALIDATION_PASS_MIN_CONFIDENCE))
+)
+AI_RECOVERY_MAX_FIELDS_PER_ATTEMPT = int(os.getenv("AI_RECOVERY_MAX_FIELDS_PER_ATTEMPT", "5"))
+AI_RECOVERY_IN_SCOPE_TYPES = {
+    item.strip().lower()
+    for item in os.getenv("AI_RECOVERY_IN_SCOPE_TYPES", "invoice,bank_statement").split(",")
+    if item.strip()
+}
 
 # ========================
 # Logging Settings
@@ -105,6 +182,7 @@ MISTRAL_MAX_TOKENS = int(os.getenv("MISTRAL_MAX_TOKENS", "1000"))
 LOG_FORMAT = "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}"
 LOG_ROTATION = "10 MB"
 LOG_RETENTION = "30 days"
+LOG_COLORIZE = _get_bool_env("LOG_COLORIZE", False)
 
 # ========================
 # Validation
@@ -147,8 +225,8 @@ def get_log_filename():
     Generate timestamped log filename
     Returns: Path to log file with timestamp
     """
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return LOGS_DIR / f"app_{timestamp}.log"
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    return LOGS_DIR / f"app_{timestamp}_{os.getpid()}.log"
 
 
 def get_extraction_folder(source_filename: str = None) -> Path:
@@ -204,6 +282,3 @@ def get_output_filename(prefix: str, extension: str, extraction_folder: Path = N
         output_path.mkdir(parents=True, exist_ok=True)
         return str(output_path / filename)
 
-
-# Validate configuration on import
-validate_config()

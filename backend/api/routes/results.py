@@ -1,26 +1,19 @@
-"""
-Results Routes
-
-Endpoints for retrieving and managing extraction results.
-"""
+"""Results routes for retrieving and managing extraction results."""
 
 from fastapi import APIRouter, HTTPException, Query, Path as PathParam, Depends
 from fastapi.responses import FileResponse, JSONResponse
 from typing import Optional
-import sys
 from pathlib import Path
-import json
 import shutil
 import uuid
 
-# Add backend to path
-backend_path = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(backend_path))
-
-from api.models.responses import ExtractionListResponse, ExtractionListItem
+from api.models.responses import ExtractionListResponse, ExtractionListItem, ResultResponse
+from api.errors import internal_server_error
 from api.middleware.auth_middleware import get_current_user
 from logger import logger
-import config
+from recovery.service import count_recovery_attempts
+from review.service import get_open_review_case_snapshot
+from workflow_contract import is_terminal_job_state
 from db.session import get_db
 from db import models
 from sqlalchemy.orm import Session
@@ -28,7 +21,7 @@ from sqlalchemy.orm import Session
 router = APIRouter()
 
 
-@router.get("/results/{extraction_id}")
+@router.get("/results/{extraction_id}", response_model=ResultResponse)
 async def get_results(
     extraction_id: str,
     current_user: models.User = Depends(get_current_user),
@@ -59,6 +52,26 @@ async def get_results(
         if not target:
             raise HTTPException(status_code=404, detail=f"Extraction '{extraction_id}' not found")
 
+        if not is_terminal_job_state(target.status):
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "status": "processing",
+                    "job_id": extraction_id,
+                    "current_status": target.status,
+                    "current_stage": target.current_stage,
+                    "message": "Result not ready yet",
+                },
+            )
+
+        document = None
+        if target.document_id:
+            document = (
+                db.query(models.Document)
+                .filter(models.Document.id == target.document_id)
+                .first()
+            )
+
         # Return structured data + metadata
         extraction_result = (
             db.query(models.ExtractionResult)
@@ -66,24 +79,95 @@ async def get_results(
             .first()
         )
 
+        outputs = (
+            db.query(models.ExtractionOutput)
+            .filter(models.ExtractionOutput.extraction_id == target.id)
+            .all()
+        )
+        artifacts = {
+            row.format: row.storage_uri
+            for row in outputs
+            if row.storage_uri
+        }
+        validation_record = (
+            db.query(models.ValidationReport)
+            .filter(models.ValidationReport.extraction_id == target.id)
+            .order_by(models.ValidationReport.created_at.desc())
+            .first()
+        )
+        validation_summary = None
+        if validation_record and isinstance(validation_record.issues_jsonb, dict):
+            validation_summary = validation_record.issues_jsonb.get("summary")
+
+        review_snapshot = get_open_review_case_snapshot(db, target.id)
+        review_case_id = review_snapshot["review_case_id"] if review_snapshot else None
+        recovery_attempt_count = count_recovery_attempts(db, target.id)
+
         if not extraction_result:
-            raise HTTPException(status_code=404, detail="Extraction result not found")
+            return ResultResponse(
+                job_id=extraction_id,
+                status=target.status,
+                file_name=document.filename if document else None,
+                review_required=bool(target.review_required),
+                validation_decision=target.validation_decision,
+                validation_summary=validation_summary,
+                failure_reason=target.error_message,
+                review_case_id=review_case_id,
+                review_status=review_snapshot["status"] if review_snapshot else None,
+                review_priority=review_snapshot["priority"] if review_snapshot else None,
+                review_open_field_count=review_snapshot["open_field_count"] if review_snapshot else 0,
+                critical_review_open_field_count=(
+                    review_snapshot["critical_open_field_count"] if review_snapshot else 0
+                ),
+                review_summary=review_snapshot["review_summary"] if review_snapshot else {},
+                recovery_attempt_count=recovery_attempt_count,
+                unresolved_review_fields=(
+                    review_snapshot["unresolved_review_fields"] if review_snapshot else []
+                ),
+                artifacts=artifacts,
+            )
 
         logger.info(f"Retrieved results for: {extraction_id}")
-        return {
-            "extraction_id": extraction_id,
-            "document_type": extraction_result.document_type,
-            "structured_data": extraction_result.structured_data_jsonb,
-            "confidence": extraction_result.confidence_jsonb,
-            "detected_language": extraction_result.detected_language,
-            "metadata": extraction_result.metadata_jsonb,
-        }
+        result_metadata = extraction_result.metadata_jsonb or {}
+        payload_validation_summary = (
+            result_metadata.get("validation_summary")
+            if isinstance(result_metadata, dict)
+            else None
+        ) or validation_summary
+        return ResultResponse(
+            job_id=extraction_id,
+            status=target.status,
+            file_name=document.filename if document else None,
+            document_type=extraction_result.document_type,
+            doc_type=extraction_result.document_type,
+            structured_data=extraction_result.structured_data_jsonb,
+            confidence=extraction_result.confidence_jsonb,
+            detected_language=extraction_result.detected_language,
+            metadata=result_metadata if isinstance(result_metadata, dict) else {},
+            review_required=bool(target.review_required),
+            validation_decision=target.validation_decision,
+            validation_summary=payload_validation_summary if isinstance(payload_validation_summary, dict) else None,
+            failure_reason=target.error_message,
+            review_case_id=review_case_id,
+            review_status=review_snapshot["status"] if review_snapshot else None,
+            review_priority=review_snapshot["priority"] if review_snapshot else None,
+            review_open_field_count=review_snapshot["open_field_count"] if review_snapshot else 0,
+            critical_review_open_field_count=(
+                review_snapshot["critical_open_field_count"] if review_snapshot else 0
+            ),
+            review_summary=review_snapshot["review_summary"] if review_snapshot else {},
+            recovery_attempt_count=recovery_attempt_count,
+            unresolved_review_fields=(
+                review_snapshot["unresolved_review_fields"] if review_snapshot else []
+            ),
+            artifacts=artifacts,
+        )
     
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to get results: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception(f"Failed to get results for extraction_id={extraction_id}: {e}")
+        raise internal_server_error()
 
 
 @router.get("/download/{extraction_id}/{format}")
@@ -158,8 +242,10 @@ async def download_file(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Download failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception(
+            f"Download failed for extraction_id={extraction_id}, format={format}: {e}"
+        )
+        raise internal_server_error()
 
 
 @router.get("/extractions", response_model=ExtractionListResponse)
@@ -222,8 +308,8 @@ async def list_extractions(
         )
     
     except Exception as e:
-        logger.error(f"Failed to list extractions: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception(f"Failed to list extractions for user_id={current_user.id}: {e}")
+        raise internal_server_error()
 
 
 @router.delete("/extractions/{extraction_id}")
@@ -262,17 +348,52 @@ async def delete_extraction(
             .first()
         )
         target_folder = Path(output.storage_uri).parent if output and output.storage_uri else None
+        document = None
+        raw_file_path = None
+        if target.document_id:
+            document = (
+                db.query(models.Document)
+                .filter(models.Document.id == target.document_id)
+                .first()
+            )
+            raw_file_path = Path(document.storage_uri) if document and document.storage_uri else None
 
         # Delete DB records
+        review_case_ids = [
+            review_case_id
+            for (review_case_id,) in db.query(models.ReviewCase.id)
+            .filter(models.ReviewCase.extraction_id == extraction_uuid)
+            .all()
+        ]
+        if review_case_ids:
+            db.query(models.RecoveryAttempt).filter(
+                models.RecoveryAttempt.review_case_id.in_(review_case_ids)
+            ).delete(synchronize_session=False)
+            db.query(models.FieldCorrection).filter(
+                models.FieldCorrection.review_case_id.in_(review_case_ids)
+            ).delete(synchronize_session=False)
+            db.query(models.ReviewFieldItem).filter(
+                models.ReviewFieldItem.review_case_id.in_(review_case_ids)
+            ).delete(synchronize_session=False)
+            db.query(models.ReviewCase).filter(
+                models.ReviewCase.id.in_(review_case_ids)
+            ).delete(synchronize_session=False)
+        db.query(models.RecoveryAttempt).filter(
+            models.RecoveryAttempt.extraction_id == extraction_uuid
+        ).delete(synchronize_session=False)
         db.query(models.ExtractionOutput).filter(models.ExtractionOutput.extraction_id == extraction_uuid).delete()
         db.query(models.ExtractionResult).filter(models.ExtractionResult.extraction_id == extraction_uuid).delete()
         db.query(models.ValidationReport).filter(models.ValidationReport.extraction_id == extraction_uuid).delete()
         db.query(models.Extraction).filter(models.Extraction.id == extraction_uuid).delete()
+        if document:
+            db.query(models.Document).filter(models.Document.id == document.id).delete()
         db.commit()
 
         # Delete files (if present)
         if target_folder and target_folder.exists():
             shutil.rmtree(target_folder, ignore_errors=True)
+        if raw_file_path and raw_file_path.exists():
+            raw_file_path.unlink(missing_ok=True)
 
         logger.info(f"Deleted extraction: {extraction_id}")
 
@@ -284,5 +405,5 @@ async def delete_extraction(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to delete extraction: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception(f"Failed to delete extraction_id={extraction_id}: {e}")
+        raise internal_server_error()

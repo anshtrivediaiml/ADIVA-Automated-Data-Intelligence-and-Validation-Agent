@@ -1,77 +1,76 @@
-"""
-Health Check Routes
+"""Health, readiness, and runtime metrics routes."""
 
-API health and status endpoints.
-"""
+from __future__ import annotations
 
 from fastapi import APIRouter
+from fastapi.responses import JSONResponse
+
 from api.models.responses import HealthResponse
-import sys
-from pathlib import Path
-
-# Add backend to path
-backend_path = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(backend_path))
-
 from logger import logger
+from observability import get_readiness_snapshot, runtime_metrics
 import config
 
 router = APIRouter()
 
 
+@router.get("/health/live")
+async def liveness_check():
+    """Simple process liveness endpoint."""
+    return {
+        "status": "alive",
+        "version": "1.0.0",
+    }
+
+
+@router.get("/health/ready")
+async def readiness_check():
+    """Dependency-aware readiness check."""
+    readiness = get_readiness_snapshot()
+    status_code = 200 if readiness["status"] == "ready" else 503
+    logger.info(f"Readiness check requested | status={readiness['status']}")
+    return JSONResponse(status_code=status_code, content=readiness)
+
+
 @router.get("/health", response_model=HealthResponse)
 async def health_check():
     """
-    Check API health and dependencies status
-    
-    Returns health status and availability of key dependencies.
+    Backward-compatible summary health endpoint.
     """
-    dependencies = {}
-    
-    # Check Tesseract
-    try:
-        import pytesseract
-        pytesseract.get_tesseract_version()
-        dependencies["tesseract"] = "available"
-    except:
-        dependencies["tesseract"] = "not available"
-    
-    # Check Mistral AI
-    try:
-        if config.MISTRAL_API_KEY:
-            dependencies["mistral_ai"] = "configured"
-        else:
-            dependencies["mistral_ai"] = "not configured"
-    except:
-        dependencies["mistral_ai"] = "error"
-    
-    # Check OCR
-    try:
-        from extractors.ocr_extractor import HAS_OCR
-        dependencies["ocr"] = "ready" if HAS_OCR else "not available"
-    except:
-        dependencies["ocr"] = "error"
-    
-    logger.info("Health check requested")
-    
+    readiness = get_readiness_snapshot()
+    dependencies = {
+        "database": readiness["checks"]["database"]["status"],
+        "queue": readiness["checks"]["queue"]["status"],
+        "storage": readiness["checks"]["storage"]["status"],
+        "ocr": readiness["checks"]["ocr"]["status"],
+        "mistral_ai": readiness["checks"]["llm"]["status"],
+    }
+    overall = "healthy" if readiness["status"] == "ready" else "degraded"
+    logger.info(f"Health check requested | status={overall}")
     return HealthResponse(
-        status="healthy",
+        status=overall,
         version="1.0.0",
-        dependencies=dependencies
+        dependencies=dependencies,
     )
+
+
+@router.get("/metrics")
+async def metrics_snapshot():
+    """Machine-readable runtime metrics snapshot."""
+    return runtime_metrics.snapshot()
 
 
 @router.get("/status")
 async def api_status():
     """
-    Get detailed API status
-    
-    Returns more detailed status information including configuration.
+    Detailed operational status view.
     """
+    readiness = get_readiness_snapshot()
+    metrics = runtime_metrics.snapshot()
     return {
         "api": "ADIVA Document Extraction",
         "version": "1.0.0",
         "status": "running",
+        "readiness": readiness["status"],
         "features": {
             "pdf_extraction": True,
             "docx_extraction": True,
@@ -79,8 +78,12 @@ async def api_status():
             "ai_classification": bool(config.MISTRAL_API_KEY),
             "multi_language": True,
             "batch_processing": True,
-            "exports": ["json", "csv", "excel", "html"]
+            "async_jobs": True,
+            "job_execution_backend": config.JOB_EXECUTION_BACKEND,
+            "exports": ["json", "csv", "xlsx", "html"],
         },
+        "dependencies": readiness["checks"],
+        "runtime_metrics": metrics["jobs"],
         "supported_languages": ["English", "Hindi", "Gujarati"],
-        "supported_document_types": ["invoice", "resume", "contract"]
+        "supported_document_types": ["invoice", "resume", "contract"],
     }

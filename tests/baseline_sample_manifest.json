@@ -1,0 +1,147 @@
+{
+  "hindi_invoice.png": {
+    "source": "data/test_documents",
+    "tags": ["invoice", "hindi", "sample_doc", "multilingual_candidate"],
+    "notes": "Hindi invoice sample document."
+  },
+  "gujarati_invoice.png": {
+    "source": "data/test_documents",
+    "tags": ["invoice", "gujarati", "sample_doc", "multilingual_candidate"],
+    "notes": "Gujarati invoice sample document."
+  },
+  "hindi_resume.png": {
+    "source": "data/test_documents",
+    "tags": ["resume", "hindi", "sample_doc", "text_heavy"],
+    "notes": "Hindi resume sample document."
+  },
+  "test_prescription_1772825449898.png": {
+    "source": "test_images",
+    "tags": ["prescription", "medical", "image_sample"],
+    "notes": "Prescription image for handwritten or hard-read validation."
+  },
+  "test_purchase_order_1773506218075.png": {
+    "source": "test_images",
+    "tags": ["purchase_order", "business_document", "structured_table", "new_batch"],
+    "notes": "Purchase order sample added in the newer corpus batch."
+  },
+  "test_bill_of_lading_1773506238143.png": {
+    "source": "test_images",
+    "tags": ["bill_of_lading", "logistics", "business_document", "new_batch"],
+    "notes": "Bill of lading sample added in the newer corpus batch."
+  },
+  "test_lab_report_1773506253364.png": {
+    "source": "test_images",
+    "tags": ["lab_report", "medical", "tabular", "new_batch"],
+    "notes": "Lab report sample added in the newer corpus batch."
+  },
+  "test_payslip_1773506271317.png": {
+    "source": "test_images",
+    "tags": ["payslip", "payroll", "business_document", "new_batch"],
+    "notes": "Payslip sample added in the newer corpus batch."
+  },
+  "test_income_tax_form_1773506288685.png": {
+    "source": "test_images",
+    "tags": ["tax_form", "government_form", "business_document", "new_batch"],
+    "notes": "Income tax form sample added in the newer corpus batch."
+  },
+  "test_lease_agreement_1773506313389.png": {
+    "source": "test_images",
+    "tags": ["lease_agreement", "contract", "text_heavy", "new_batch"],
+    "notes": "Lease agreement sample added in the newer corpus batch."
+  },
+  "test_identity_card_1773506329978.png": {
+    "source": "test_images",
+    "tags": ["identity_card", "id_document", "card_layout", "new_batch"],
+    "notes": "Identity card sample added in the newer corpus batch."
+  },
+  "test_retail_receipt_1773506348065.png": {
+    "source": "test_images",
+    "tags": ["retail_receipt", "receipt", "business_document", "new_batch"],
+    "notes": "Retail receipt sample added in the newer corpus batch."
+  },
+  "test_insurance_policy_1773506361536.png": {
+    "source": "test_images",
+    "tags": ["insurance_policy", "policy_document", "text_heavy", "new_batch"],
+    "notes": "Insurance policy sample added in the newer corpus batch."
+  },
+  "test_balance_sheet_1773506378669.png": {
+    "source": "test_images",
+    "tags": ["balance_sheet", "finance", "tabular", "new_batch"],
+    "notes": "Balance sheet sample added in the newer corpus batch."
+  },
+  "test_marksheet_hindi_1772825386762.png": {
+    "source": "test_images",
+    "tags": ["marksheet", "hindi", "structured_table", "image_sample"],
+    "notes": "Hindi marksheet sample."
+  },
+  "test_invoice_english_1772825371308.png": {
+    "source": "test_images",
+    "tags": ["invoice", "english", "business_document", "clean_scan"],
+    "notes": "Clean English invoice sample."
+  },
+  "test_cheque_english_1772825435086.png": {
+    "source": "test_images",
+    "tags": ["cheque", "english", "banking", "clean_scan"],
+    "notes": "English cheque sample."
+  },
+  "test_bank_statement_1772825402638.png": {
+    "source": "test_images",
+    "tags": ["bank_statement", "english", "business_document", "structured_table"],
+    "notes": "English bank statement sample."
+  },
+  "Gemini_Generated_Image_y7jw1ty7jw1ty7jw.png": {
+    "source": "test_images",
+    "tags": ["hard_case", "generated_case", "mixed_layout"],
+    "notes": "Synthetic hard OCR case."
+  },
+  "Gemini_Generated_Image_w5avfaw5avfaw5av.png": {
+    "source": "test_images",
+    "tags": ["hard_case", "generated_case", "mixed_layout"],
+    "notes": "Synthetic hard OCR case."
+  },
+  "Gemini_Generated_Image_tukltxtukltxtukl.png": {
+    "source": "test_images",
+    "tags": ["hard_case", "generated_case", "mixed_layout"],
+    "notes": "Synthetic hard OCR case."
+  },
+  "Gemini_Generated_Image_rk6ssgrk6ssgrk6s.png": {
+    "source": "test_images",
+    "tags": ["hard_case", "generated_case", "mixed_layout"],
+    "notes": "Synthetic hard OCR case."
+  },
+  "Gemini_Generated_Image_oohwmdoohwmdoohw.png": {
+    "source": "test_images",
+    "tags": ["hard_case", "generated_case", "mixed_layout"],
+    "notes": "Synthetic hard OCR case."
+  },
+  "Gemini_Generated_Image_nmtcfynmtcfynmtc.png": {
+    "source": "test_images",
+    "tags": ["hard_case", "generated_case", "mixed_layout", "rotated_or_noisy"],
+    "notes": "Hard noisy sample that benefits from layout OCR."
+  },
+  "Gemini_Generated_Image_k8s1iak8s1iak8s1.png": {
+    "source": "test_images",
+    "tags": ["hard_case", "generated_case", "mixed_layout"],
+    "notes": "Synthetic hard OCR case."
+  },
+  "Gemini_Generated_Image_hmi8oxhmi8oxhmi8.png": {
+    "source": "test_images",
+    "tags": ["hard_case", "generated_case", "mixed_layout"],
+    "notes": "Synthetic hard OCR case."
+  },
+  "Gemini_Generated_Image_clf1x4clf1x4clf1.png": {
+    "source": "test_images",
+    "tags": ["hard_case", "generated_case", "mixed_layout"],
+    "notes": "Synthetic hard OCR case."
+  },
+  "Gemini_Generated_Image_ahptfpahptfpahpt.png": {
+    "source": "test_images",
+    "tags": ["hard_case", "generated_case", "mixed_layout"],
+    "notes": "Synthetic hard OCR case."
+  },
+  "Gemini_Generated_Image_1wdrjd1wdrjd1wdr.png": {
+    "source": "test_images",
+    "tags": ["hard_case", "generated_case", "mixed_layout"],
+    "notes": "Synthetic hard OCR case."
+  }
+}

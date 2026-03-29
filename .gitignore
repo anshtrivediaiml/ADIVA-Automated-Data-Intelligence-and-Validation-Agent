@@ -1,5 +1,7 @@
 # Python
 __pycache__/
+.ruff_cache/
+.paddlex/
 *.py[cod]
 *$py.class
 *.so
@@ -45,12 +47,14 @@ Thumbs.db
 *.log
 outputs/logs/*.log
 
+
 # Outputs
 outputs/extracted/*
 outputs/validated/*
 !outputs/extracted/.gitkeep
 !outputs/validated/.gitkeep
 !outputs/logs/.gitkeep
+outputs/
 
 # Data
 data/samples/*
@@ -59,3 +63,16 @@ data/samples/*
 #test images
 test_images/*
 !test_images/.gitkeep
+
+frontend/node_modules/
+
+backend/__pycache__/
+
+EXTRACTION_ANALYSIS_REPORT.md
+PHASE1_BACKEND_CONTRACT.md
+PHASE4A_WEEK1_SUMMARY.md
+PHASE4A_WEEK2_SUMMARY.md
+PHASE4A_WEEK3_SUMMARY.md
+PHASE5_PRE_IMPLEMENTATION_CHECKLIST.md
+PRODUCTION_READINESS_TRACKER.md
+BACKEND_EXECUTION_ROADMAP.md

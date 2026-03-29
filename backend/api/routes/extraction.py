@@ -1,62 +1,54 @@
 """
 Extraction Routes
 
-Document extraction endpoints.
+Phase 2 converts extraction submission into asynchronous job creation.
 """
 
-from fastapi import APIRouter, UploadFile, File, HTTPException, Form, Depends
-from fastapi.responses import JSONResponse
-from typing import List, Optional
-import sys
+from __future__ import annotations
+
+from datetime import datetime, timezone
 from pathlib import Path
-import os
-import tempfile
-import time
-import zipfile
-import re
+from typing import List, Optional
 import hashlib
+import re
+import time
+import uuid
+import zipfile
+
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Header, HTTPException, UploadFile, status
 from PIL import Image, UnidentifiedImageError
 
-# Add backend to path
-backend_path = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(backend_path))
-
-from api.models.responses import ExtractionResponse, BatchResponse, ErrorResponse
+from api.errors import internal_server_error
 from api.middleware.auth_middleware import get_current_user
-from extractor import DocumentExtractor
-from logger import logger
-import config
-from db.session import get_db, SessionLocal
+from api.models.responses import BatchJobItem, BatchSubmissionResponse, JobSubmissionResponse
 from db import models
+from db.session import SessionLocal, get_db
+from logger import logger
+from observability import runtime_metrics
+from orchestration.service import build_job_submission_response, enqueue_extraction_job
+from workflow_contract import JobState
+import config
 
 router = APIRouter()
 
-# Initialize extractor (singleton)
-extractor = DocumentExtractor()
-
-# Configuration (centralized in config.py)
 MAX_FILE_SIZE = config.MAX_FILE_SIZE
 ALLOWED_EXTENSIONS = config.ALLOWED_EXTENSIONS
 UPLOAD_CHUNK_SIZE = config.UPLOAD_CHUNK_SIZE
 
 
 def _sanitize_filename(filename: str) -> str:
-    """Return a safe filename (strip paths, allow only safe chars)."""
     name = Path(filename).name
     name = re.sub(r"[^A-Za-z0-9._-]", "_", name).strip("._")
     return name or f"upload_{int(time.time())}"
 
 
 def _validate_magic_bytes(file_path: Path, file_ext: str) -> None:
-    """Validate file content using magic bytes / structure."""
     with open(file_path, "rb") as f:
         header = f.read(16)
 
-    # PDF
     if file_ext == ".pdf" and not header.startswith(b"%PDF-"):
         raise HTTPException(status_code=400, detail="File content is not a valid PDF")
 
-    # Images (robust decode check).
     if file_ext in {".png", ".jpg", ".jpeg", ".tiff", ".bmp"}:
         expected_format = {
             ".png": "PNG",
@@ -76,7 +68,7 @@ def _validate_magic_bytes(file_path: Path, file_ext: str) -> None:
             )
             raise HTTPException(
                 status_code=400,
-                detail=f"File content is not a valid {expected_format}"
+                detail=f"File content is not a valid {expected_format}",
             )
 
         if detected_format not in {"PNG", "JPEG", "TIFF", "BMP"}:
@@ -88,7 +80,6 @@ def _validate_magic_bytes(file_path: Path, file_ext: str) -> None:
                 f"extension={file_ext}, detected={detected_format}"
             )
 
-    # DOCX (ZIP with [Content_Types].xml)
     if file_ext == ".docx":
         if not header.startswith(b"PK"):
             raise HTTPException(status_code=400, detail="File content is not a valid DOCX")
@@ -101,27 +92,25 @@ def _validate_magic_bytes(file_path: Path, file_ext: str) -> None:
 
 
 def validate_file(file: UploadFile) -> None:
-    """Validate uploaded file"""
     file_ext = Path(file.filename).suffix.lower()
     if file_ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(
             status_code=400,
-            detail=f"File type not supported. Allowed: {', '.join(ALLOWED_EXTENSIONS)}"
+            detail=f"File type not supported. Allowed: {', '.join(sorted(ALLOWED_EXTENSIONS))}",
         )
 
 
 async def save_upload_file(upload_file: UploadFile) -> tuple[Path, str, int]:
-    """Save uploaded file to temporary location"""
+    temp_path: Optional[Path] = None
     try:
-        temp_dir = Path(tempfile.gettempdir()) / "adiva_uploads"
-        temp_dir.mkdir(exist_ok=True)
+        date_dir = config.UPLOADS_DIR / datetime.now().strftime("%Y%m%d")
+        date_dir.mkdir(parents=True, exist_ok=True)
 
-        file_ext = Path(upload_file.filename).suffix.lower()
-        safe_name = _sanitize_filename(upload_file.filename)
-        temp_path = temp_dir / f"{int(time.time())}_{safe_name}"
-
+        safe_name = _sanitize_filename(upload_file.filename or "upload")
+        temp_path = date_dir / f"{int(time.time())}_{uuid.uuid4().hex[:8]}_{safe_name}"
         total = 0
         sha256 = hashlib.sha256()
+
         with open(temp_path, "wb") as f:
             while True:
                 chunk = await upload_file.read(UPLOAD_CHUNK_SIZE)
@@ -131,67 +120,82 @@ async def save_upload_file(upload_file: UploadFile) -> tuple[Path, str, int]:
                 if total > MAX_FILE_SIZE:
                     raise HTTPException(
                         status_code=413,
-                        detail=f"File too large. Maximum size: {MAX_FILE_SIZE / 1024 / 1024}MB"
+                        detail=f"File too large. Maximum size: {MAX_FILE_SIZE / 1024 / 1024}MB",
                     )
                 sha256.update(chunk)
                 f.write(chunk)
 
-        _validate_magic_bytes(temp_path, file_ext)
+        _validate_magic_bytes(temp_path, Path(upload_file.filename or "").suffix.lower())
         return temp_path, sha256.hexdigest(), total
 
     except HTTPException:
+        if temp_path and temp_path.exists():
+            temp_path.unlink(missing_ok=True)
         raise
-    except Exception as e:
-        logger.error(f"Failed to save upload: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to save file: {str(e)}")
+    except Exception as exc:
+        if temp_path and temp_path.exists():
+            temp_path.unlink(missing_ok=True)
+        logger.exception(f"Failed to save upload for filename={upload_file.filename}: {exc}")
+        raise internal_server_error("Failed to save uploaded file")
 
 
-@router.post("/extract", response_model=ExtractionResponse)
+def _find_existing_idempotent_job(
+    *,
+    idempotency_key: str,
+    user_id,
+):
+    db = SessionLocal()
+    try:
+        existing = (
+            db.query(models.Extraction, models.Document)
+            .join(models.Document, models.Extraction.document_id == models.Document.id)
+            .filter(models.Extraction.user_id == user_id)
+            .filter(models.Extraction.idempotency_key == idempotency_key)
+            .order_by(models.Extraction.created_at.desc())
+            .first()
+        )
+        if not existing:
+            return None
+
+        extraction, document = existing
+        return build_job_submission_response(extraction, document)
+    finally:
+        db.close()
+
+
+@router.post(
+    "/extract",
+    response_model=JobSubmissionResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
 async def extract_document(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(..., description="Document file to extract"),
-    current_user: dict = Depends(get_current_user),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
+    current_user: models.User = Depends(get_current_user),
 ):
     """
-    Extract from uploaded document
-
-    Upload a PDF, DOCX, or image file and extract structured data.
-
-    - **file**: Document file (PDF, DOCX, PNG, JPG, etc.)
-
-    Returns extraction results with links to generated files.
+    Accept a document upload and return a queued job.
     """
-    start_time = time.time()
-    temp_path = None
+    durable_path: Optional[Path] = None
 
     try:
         validate_file(file)
-        logger.info(f"Received extraction request for: {file.filename}")
 
-        temp_path, checksum, size_bytes = await save_upload_file(file)
+        if idempotency_key:
+            existing = _find_existing_idempotent_job(
+                idempotency_key=idempotency_key,
+                user_id=current_user.id,
+            )
+            if existing:
+                logger.info(
+                    f"Reused existing extraction job for user_id={current_user.id}, "
+                    f"idempotency_key={idempotency_key}"
+                )
+                return existing
 
-        # Extraction is the long step (~55s). We deliberately do NOT hold a DB
-        # connection open here — Supabase kills idle connections after ~30s.
-        logger.info(f"Extracting from: {temp_path}")
-        result = extractor.extract(str(temp_path))
+        durable_path, checksum, size_bytes = await save_upload_file(file)
 
-        processing_time = time.time() - start_time
-
-        response = ExtractionResponse(
-            status="success",
-            extraction_id="",
-            document_type=result.get('classification', {}).get('document_type'),
-            confidence=result.get('comprehensive_confidence', {}).get('overall_confidence'),
-            detected_language=result.get('metadata', {}).get('detected_language'),
-            extraction_folder=result['extraction_folder'],
-            files={
-                "json": "extraction.json",
-                **result.get('exports', {})
-            },
-            extracted_data=result,
-            processing_time=round(processing_time, 2)
-        )
-
-        # Open a FRESH DB session now — extraction is done, no idle-timeout risk.
         db = SessionLocal()
         try:
             document = models.Document(
@@ -200,7 +204,7 @@ async def extract_document(
                 mime_type=file.content_type,
                 size_bytes=size_bytes,
                 checksum=checksum,
-                storage_uri=str(temp_path),
+                storage_uri=str(durable_path),
             )
             db.add(document)
             db.flush()
@@ -208,255 +212,177 @@ async def extract_document(
             extraction = models.Extraction(
                 document_id=document.id,
                 user_id=current_user.id,
-                status="completed" if result.get("status") == "success" else "failed",
-                version=1,
+                status=JobState.QUEUED.value,
+                current_stage=None,
+                retry_count=0,
+                submitted_at=datetime.now(timezone.utc),
                 started_at=None,
                 finished_at=None,
                 model_name=config.MISTRAL_MODEL,
                 model_version=None,
                 prompt_version=None,
-                error_message=result.get("error"),
+                review_required=False,
+                validation_decision=None,
+                batch_id=None,
+                idempotency_key=idempotency_key,
+                error_message=None,
             )
             db.add(extraction)
-            db.flush()
-
-            extraction_result = models.ExtractionResult(
-                extraction_id=extraction.id,
-                document_type=result.get("classification", {}).get("document_type"),
-                structured_data_jsonb=result.get("structured_data"),
-                confidence_jsonb=result.get("comprehensive_confidence"),
-                detected_language=result.get("metadata", {}).get("detected_language"),
-                metadata_jsonb=result.get("metadata"),
-            )
-            db.add(extraction_result)
-
-            output_file = result.get("output_file")
-            if output_file:
-                db.add(models.ExtractionOutput(
-                    extraction_id=extraction.id,
-                    format="json",
-                    storage_uri=output_file,
-                    size_bytes=Path(output_file).stat().st_size if Path(output_file).exists() else None,
-                ))
-            for fmt, path in result.get("exports", {}).items():
-                db.add(models.ExtractionOutput(
-                    extraction_id=extraction.id,
-                    format=fmt,
-                    storage_uri=path,
-                    size_bytes=Path(path).stat().st_size if Path(path).exists() else None,
-                ))
-
             db.commit()
-            response.extraction_id = str(extraction.id)
+            db.refresh(document)
+            db.refresh(extraction)
 
-            # AuditLog — record the extract action
-            try:
-                db.add(models.AuditLog(
+            extraction_id = extraction.id
+            document_id = document.id
+
+            response = build_job_submission_response(extraction, document)
+
+            db.add(
+                models.AuditLog(
                     user_id=current_user.id,
-                    action="extract",
-                    resource_type="document",
-                    resource_id=str(document.id),
+                    action="extract_submitted",
+                    resource_type="extraction",
+                    resource_id=str(extraction_id),
                     metadata_jsonb={
                         "filename": file.filename,
-                        "extraction_id": str(extraction.id),
-                        "document_type": result.get("classification", {}).get("document_type"),
-                        "processing_time_sec": round(processing_time, 2),
+                        "document_id": str(document_id),
+                        "idempotency_key": idempotency_key,
                     },
-                ))
-                db.commit()
-            except Exception as al_exc:
-                logger.warning(f"AuditLog save failed (non-fatal): {al_exc}")
-                db.rollback()
-
-            logger.info(f"Extraction saved to DB: {response.extraction_id} in {processing_time:.2f}s")
-
-
-        except Exception as db_exc:
+                )
+            )
+            db.commit()
+        except Exception:
             db.rollback()
-            logger.error(f"DB save failed (extraction on disk is fine): {db_exc}")
-            # Don't raise — the extraction itself succeeded. extraction_id stays ""
+            raise
         finally:
             db.close()
 
+        enqueue_extraction_job(background_tasks, extraction_id)
+        logger.info(f"Queued extraction job {extraction_id} for file {file.filename}")
         return response
 
     except HTTPException:
+        if durable_path and durable_path.exists():
+            durable_path.unlink(missing_ok=True)
         raise
-    except Exception as e:
-        logger.error(f"Extraction failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-    finally:
-        if temp_path and temp_path.exists():
-            try:
-                os.remove(temp_path)
-            except:
-                pass
+    except Exception as exc:
+        if durable_path and durable_path.exists():
+            durable_path.unlink(missing_ok=True)
+        logger.exception(f"Failed to queue extraction for filename={file.filename}: {exc}")
+        raise internal_server_error()
 
 
-@router.post("/extract/batch", response_model=BatchResponse)
+@router.post(
+    "/extract/batch",
+    response_model=BatchSubmissionResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
 async def extract_batch(
+    background_tasks: BackgroundTasks,
     files: List[UploadFile] = File(..., description="Multiple document files"),
-    current_user: dict = Depends(get_current_user),
+    current_user: models.User = Depends(get_current_user),
     db=Depends(get_db),
 ):
     """
-    Batch extraction from multiple documents
-
-    Upload multiple files for batch processing.
-
-    - **files**: List of document files
-
-    Returns batch results with individual extraction details.
+    Accept multiple uploads and queue one job per file.
     """
-    start_time = time.time()
-    temp_paths = []
+    durable_paths: list[Path] = []
 
     try:
         if not files:
             raise HTTPException(status_code=400, detail="No files provided")
-
         if len(files) > 20:
             raise HTTPException(status_code=400, detail="Maximum 20 files per batch")
 
-        logger.info(f"Received batch extraction request for {len(files)} files")
+        batch_id = f"batch_{config.get_timestamp()}_{uuid.uuid4().hex[:8]}"
+        jobs: list[BatchJobItem] = []
+        extraction_ids = []
 
-        for file in files:
-            validate_file(file)
-            temp_path, checksum, size_bytes = await save_upload_file(file)
-            temp_paths.append((temp_path, checksum, size_bytes, file))
+        for upload in files:
+            validate_file(upload)
+            durable_path, checksum, size_bytes = await save_upload_file(upload)
+            durable_paths.append(durable_path)
 
-        batch_timestamp = time.strftime("%Y%m%d_%H%M%S")
-        batch_id = f"batch_{batch_timestamp}"
-        batch_folder = config.OUTPUTS_DIR / "extracted" / batch_id
-        batch_folder.mkdir(parents=True, exist_ok=True)
+            document = models.Document(
+                user_id=current_user.id,
+                filename=upload.filename,
+                mime_type=upload.content_type,
+                size_bytes=size_bytes,
+                checksum=checksum,
+                storage_uri=str(durable_path),
+            )
+            db.add(document)
+            db.flush()
 
-        results = []
-        failed = 0
+            extraction = models.Extraction(
+                document_id=document.id,
+                user_id=current_user.id,
+                status=JobState.QUEUED.value,
+                current_stage=None,
+                retry_count=0,
+                submitted_at=datetime.now(timezone.utc),
+                started_at=None,
+                finished_at=None,
+                model_name=config.MISTRAL_MODEL,
+                model_version=None,
+                prompt_version=None,
+                review_required=False,
+                validation_decision=None,
+                batch_id=batch_id,
+                idempotency_key=None,
+                error_message=None,
+            )
+            db.add(extraction)
+            db.flush()
 
-        for idx, entry in enumerate(temp_paths):
-            temp_path, checksum, size_bytes, upload_file = entry
-            try:
-                logger.info(f"Processing batch file {idx+1}/{len(temp_paths)}: {temp_path.name}")
-                result = extractor.extract(str(temp_path))
-
-                response = ExtractionResponse(
-                    status="success",
-                    extraction_id="",
-                    document_type=result.get('classification', {}).get('document_type'),
-                    confidence=result.get('comprehensive_confidence', {}).get('overall_confidence'),
-                    detected_language=result.get('metadata', {}).get('detected_language'),
-                    extraction_folder=result['extraction_folder'],
-                    files={
-                        "json": "extraction.json",
-                        **result.get('exports', {})
-                    },
-                    extracted_data=result
+            extraction_ids.append(extraction.id)
+            jobs.append(
+                BatchJobItem(
+                    job_id=str(extraction.id),
+                    filename=upload.filename,
+                    status=extraction.status,
+                    status_url=f"/api/jobs/{extraction.id}",
                 )
+            )
 
-                # Fresh session per batch item
-                batch_db = SessionLocal()
-                try:
-                    document = models.Document(
-                        user_id=current_user.id,
-                        filename=upload_file.filename,
-                        mime_type=upload_file.content_type,
-                        size_bytes=size_bytes,
-                        checksum=checksum,
-                        storage_uri=str(temp_path),
-                    )
-                    batch_db.add(document)
-                    batch_db.flush()
+            db.add(
+                models.AuditLog(
+                    user_id=current_user.id,
+                    action="extract_batch_submitted",
+                    resource_type="extraction",
+                    resource_id=str(extraction.id),
+                    metadata_jsonb={
+                        "filename": upload.filename,
+                        "batch_id": batch_id,
+                        "document_id": str(document.id),
+                    },
+                )
+            )
 
-                    extraction = models.Extraction(
-                        document_id=document.id,
-                        user_id=current_user.id,
-                        status="completed" if result.get("status") == "success" else "failed",
-                        version=1,
-                        started_at=None,
-                        finished_at=None,
-                        model_name=config.MISTRAL_MODEL,
-                        model_version=None,
-                        prompt_version=None,
-                        error_message=result.get("error"),
-                    )
-                    batch_db.add(extraction)
-                    batch_db.flush()
+        db.commit()
 
-                    extraction_result = models.ExtractionResult(
-                        extraction_id=extraction.id,
-                        document_type=result.get("classification", {}).get("document_type"),
-                        structured_data_jsonb=result.get("structured_data"),
-                        confidence_jsonb=result.get("comprehensive_confidence"),
-                        detected_language=result.get("metadata", {}).get("detected_language"),
-                        metadata_jsonb=result.get("metadata"),
-                    )
-                    batch_db.add(extraction_result)
+        for extraction_id in extraction_ids:
+            enqueue_extraction_job(background_tasks, extraction_id, batch=True)
 
-                    output_file = result.get("output_file")
-                    if output_file:
-                        batch_db.add(models.ExtractionOutput(
-                            extraction_id=extraction.id,
-                            format="json",
-                            storage_uri=output_file,
-                            size_bytes=Path(output_file).stat().st_size if Path(output_file).exists() else None,
-                        ))
-                    for fmt, path in result.get("exports", {}).items():
-                        batch_db.add(models.ExtractionOutput(
-                            extraction_id=extraction.id,
-                            format=fmt,
-                            storage_uri=path,
-                            size_bytes=Path(path).stat().st_size if Path(path).exists() else None,
-                        ))
-
-                    batch_db.commit()
-                    response.extraction_id = str(extraction.id)
-
-                except Exception as db_exc:
-                    batch_db.rollback()
-                    logger.error(f"DB save failed for batch item {idx}: {db_exc}")
-                finally:
-                    batch_db.close()
-
-                results.append(response)
-
-            except Exception as e:
-                failed += 1
-                logger.error(f"Failed to extract {temp_path.name}: {e}")
-                results.append(ExtractionResponse(
-                    status="error",
-                    extraction_id=f"error_{idx}",
-                    extraction_folder="",
-                    files={}
-                ))
-
-        processing_time = time.time() - start_time
-
-        response = BatchResponse(
-            status="success" if failed == 0 else "partial",
+        logger.info(f"Queued batch {batch_id} with {len(extraction_ids)} extraction jobs")
+        return BatchSubmissionResponse(
             batch_id=batch_id,
-            batch_folder=str(batch_folder),
+            status=JobState.QUEUED.value,
             total_documents=len(files),
-            processed=len(files) - failed,
-            failed=failed,
-            results=results,
-            processing_time=round(processing_time, 2)
+            submitted_at=datetime.now(timezone.utc),
+            jobs=jobs,
         )
 
-        logger.info(f"Batch extraction completed: {len(files)} files, {failed} failed, {processing_time:.2f}s")
-        return response
-
     except HTTPException:
+        db.rollback()
+        for durable_path in durable_paths:
+            if durable_path.exists():
+                durable_path.unlink(missing_ok=True)
         raise
-    except Exception as e:
-        logger.error(f"Batch extraction failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-    finally:
-        for entry in temp_paths:
-            temp_path = entry[0] if isinstance(entry, tuple) else entry
-            if isinstance(temp_path, Path) and temp_path.exists():
-                try:
-                    os.remove(temp_path)
-                except:
-                    pass
+    except Exception as exc:
+        db.rollback()
+        for durable_path in durable_paths:
+            if durable_path.exists():
+                durable_path.unlink(missing_ok=True)
+        logger.exception(f"Failed to queue batch extraction: {exc}")
+        raise internal_server_error()

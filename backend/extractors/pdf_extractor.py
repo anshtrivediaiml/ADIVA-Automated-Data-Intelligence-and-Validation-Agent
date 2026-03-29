@@ -8,8 +8,12 @@ Supports multiple table extraction backends for better accuracy.
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 import pdfplumber
-from extractors.base_extractor import BaseExtractor
-from logger import logger, log_extraction, log_error
+try:
+    from extractors.base_extractor import BaseExtractor
+    from logger import logger, log_extraction, log_error
+except ModuleNotFoundError:
+    from backend.extractors.base_extractor import BaseExtractor
+    from backend.logger import logger, log_extraction, log_error
 import time
 
 try:

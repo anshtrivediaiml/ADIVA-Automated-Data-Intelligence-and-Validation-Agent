@@ -14,29 +14,41 @@ Handles:
 - English, Hindi (Devanagari), Gujarati scripts
 """
 
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple, List
+import os
 import platform
 import re
 import unicodedata
-from extractors.base_extractor import BaseExtractor
-from logger import logger, log_extraction, log_error
+try:
+    import config
+    from extractors.base_extractor import BaseExtractor
+    from logger import logger, log_extraction, log_error
+except ModuleNotFoundError:
+    from backend import config
+    from backend.extractors.base_extractor import BaseExtractor
+    from backend.logger import logger, log_extraction, log_error
 import time
 
 # ── Core OCR dependencies ────────────────────────────────────────────────────
 try:
     import pytesseract
 
-    if platform.system() == "Windows":
-        pytesseract.pytesseract.tesseract_cmd = (
-            r"C:\Users\AnshTrivedi\AppData\Local\Programs\Tesseract-OCR\tesseract.exe"
-        )
-    from pdf2image import convert_from_path
+    if config.TESSERACT_CMD_PATH:
+        pytesseract.pytesseract.tesseract_cmd = config.TESSERACT_CMD_PATH
+    elif platform.system() == "Windows":
+        common_windows_path = Path(os.environ.get("ProgramFiles", "")) / "Tesseract-OCR" / "tesseract.exe"
+        if common_windows_path.exists():
+            pytesseract.pytesseract.tesseract_cmd = str(common_windows_path)
+    from pdf2image import convert_from_path, pdfinfo_from_path
     from PIL import Image, ImageFilter, ImageEnhance
 
     HAS_OCR = True
+    HAS_PDFINFO = True
 except ImportError:
     HAS_OCR = False
+    HAS_PDFINFO = False
     logger.warning("OCR dependencies not available. Install pytesseract and pdf2image.")
 
 # ── OpenCV for advanced preprocessing ───────────────────────────────────────
@@ -60,6 +72,18 @@ except ImportError:
     logger.info("EasyOCR not installed.")
 
 # ── PaddleOCR preferred fallback ────────────────────────────────────────────
+_PADDLE_RUNTIME_HOME = config.OUTPUTS_DIR / "paddle_runtime"
+_PADDLE_RUNTIME_HOME.mkdir(parents=True, exist_ok=True)
+_PADDLE_TEMP_HOME = _PADDLE_RUNTIME_HOME / "temp"
+_PADDLE_TEMP_HOME.mkdir(parents=True, exist_ok=True)
+os.environ.setdefault("PADDLE_HOME", str(_PADDLE_RUNTIME_HOME))
+os.environ.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "True")
+os.environ["USERPROFILE"] = str(_PADDLE_RUNTIME_HOME)
+os.environ["HOME"] = str(_PADDLE_RUNTIME_HOME)
+os.environ["TEMP"] = str(_PADDLE_TEMP_HOME)
+os.environ["TMP"] = str(_PADDLE_TEMP_HOME)
+os.environ["TMPDIR"] = str(_PADDLE_TEMP_HOME)
+
 try:
     from paddleocr import PaddleOCR
 
@@ -99,6 +123,11 @@ TARGETED_LANG_RETRY_MAX_CONF = 80.0
 EASYOCR_MAX_PIXELS = 2_000_000
 # Minimum short-side resolution before any OCR pipeline runs
 MIN_SHORT_SIDE_PX = 1200
+SPARSE_TEXT_RETRY_CHAR_THRESHOLD = 120
+PSM_11_RETRY_CONFIDENCE_THRESHOLD = 72.0
+LAYOUT_OCR_TRIGGER_CONFIDENCE = 72.0
+LAYOUT_OCR_MIN_REGIONS = 1
+LAYOUT_OCR_MAX_REGIONS = 10
 
 
 def _detect_script_from_text(text: str) -> str:
@@ -182,6 +211,55 @@ def _is_garbage_text(text: str) -> bool:
     return word_ratio < 0.40 or symbol_ratio > 0.35
 
 
+def _looks_like_business_document(text: str) -> bool:
+    """Detect dense business-style text where PaddleOCR often helps."""
+    stripped = (text or "").strip().lower()
+    if not stripped:
+        return False
+
+    marker_patterns = [
+        r"\binvoice\b",
+        r"\btax invoice\b",
+        r"\binvoice\s*(no|number)\b",
+        r"\baccount statement\b",
+        r"\bbank statement\b",
+        r"\bdate\b",
+        r"\btotal\b",
+        r"\bamount\b",
+        r"\bbalance\b",
+        r"\bgst\b",
+        r"\bsubtotal\b",
+        r"\bqty\b",
+    ]
+    marker_hits = sum(1 for pattern in marker_patterns if re.search(pattern, stripped))
+    number_hits = len(re.findall(r"\b\d[\d,./:-]{2,}\b", stripped))
+    structured_lines = sum(
+        1 for line in stripped.splitlines() if len(re.findall(r"\d", line)) >= 3
+    )
+
+    return marker_hits >= 2 or (marker_hits >= 1 and number_hits >= 4) or structured_lines >= 6
+
+
+def _looks_like_marksheet(text: str) -> bool:
+    """Avoid over-trusting business-document heuristics on academic records."""
+    stripped = (text or "").strip().lower()
+    if not stripped:
+        return False
+
+    marker_patterns = [
+        r"\bmarksheet\b",
+        r"\bmark sheet\b",
+        r"\bsubject\b",
+        r"\bgrade\b",
+        r"\bsemester\b",
+        r"\broll\s*(no|number)\b",
+        r"\bresult\b",
+        r"\btotal marks\b",
+    ]
+    marker_hits = sum(1 for pattern in marker_patterns if re.search(pattern, stripped))
+    return marker_hits >= 2
+
+
 # ── Singleton EasyOCR reader (lazy-loaded) ───────────────────────────────────
 _easyocr_reader = None
 _paddleocr_readers = {}
@@ -262,6 +340,9 @@ class OCRExtractor(BaseExtractor):
         }
         self.default_language = "eng"
         self._available_langs: list = []
+        self._last_run_summary: Dict[str, Any] = {}
+        self._last_run_source: Optional[str] = None
+        self._active_quality_assessment: Dict[str, Any] = {}
 
         if not HAS_OCR:
             logger.warning("OCR dependencies not installed.")
@@ -322,7 +403,10 @@ class OCRExtractor(BaseExtractor):
             return True
         if _is_garbage_text(stripped):
             return True
-        return confidence < 55.0
+        if confidence < 45.0:
+            return True
+        word_count = len(stripped.split())
+        return word_count < 80 and len(stripped) < 500
 
     def _should_run_easyocr(self, confidence: float, text: str) -> bool:
         """
@@ -341,12 +425,423 @@ class OCRExtractor(BaseExtractor):
 
     def _should_run_paddleocr(self, confidence: float, text: str, detected_lang: str) -> bool:
         """
-        PaddleOCR fallback policy: use it for low-confidence non-Gujarati pages
-        where text quality suggests fallback may help.
+        PaddleOCR policy: keep it available for low-confidence recovery, and
+        also try it on dense English business documents where it frequently
+        recovers cleaner text than Tesseract.
         """
         if detected_lang == "guj":
             return False
-        return self._should_run_easyocr(confidence, text)
+
+        stripped = (text or "").strip()
+        if not stripped:
+            return True
+
+        if self._should_run_easyocr(confidence, text):
+            return True
+
+        quality_assessment = self._active_quality_assessment or {}
+        quality_score = float(quality_assessment.get("quality_score", 1.0) or 0.0)
+        difficulty = quality_assessment.get("document_difficulty")
+
+        if detected_lang == "eng" and _looks_like_business_document(stripped):
+            return confidence < 96.0 or len(stripped) < 1500
+
+        if difficulty == "hard" and len(stripped) < 450:
+            return True
+
+        if quality_score >= 0.8 and detected_lang == "eng" and len(stripped) < 500:
+            return True
+
+        return False
+
+    def _score_ocr_candidate(
+        self,
+        text: str,
+        confidence: float,
+        detected_lang: str,
+    ) -> float:
+        """
+        Score OCR output by usefulness, not only reported confidence.
+        This helps compare outputs across different OCR engines.
+        """
+        stripped = (text or "").strip()
+        if not stripped:
+            return -1000.0
+
+        text_len = len(stripped)
+        tokens = re.findall(r"[A-Za-z0-9\u0900-\u097F\u0A80-\u0AFF]{2,}", stripped)
+        token_count = len(tokens)
+        digit_count = sum(1 for ch in stripped if ch.isdigit())
+        line_count = max(1, len([line for line in stripped.splitlines() if line.strip()]))
+        garbage_penalty = 18.0 if _is_garbage_text(stripped) else 0.0
+        business_bonus = 6.0 if detected_lang == "eng" and _looks_like_business_document(stripped) else 0.0
+        marksheet_penalty = 4.0 if detected_lang == "eng" and _looks_like_marksheet(stripped) else 0.0
+        quality_assessment = self._active_quality_assessment or {}
+        quality_score = float(quality_assessment.get("quality_score", 1.0) or 0.0)
+
+        return (
+            float(confidence)
+            + min(text_len / 110.0, 12.0)
+            + min(token_count / 45.0, 8.0)
+            + min(digit_count / 35.0, 4.0)
+            + min(line_count / 18.0, 3.0)
+            + business_bonus
+            - marksheet_penalty
+            - garbage_penalty
+            + max(0.0, (quality_score - 0.7) * 4.0)
+        )
+
+    def _should_replace_ocr_result(
+        self,
+        current_text: str,
+        current_confidence: float,
+        current_lang: str,
+        candidate_text: str,
+        candidate_confidence: float,
+        candidate_lang: str,
+    ) -> bool:
+        """Choose the better OCR output using cross-engine heuristics."""
+        if not (candidate_text or "").strip():
+            return False
+        if not (current_text or "").strip():
+            return True
+
+        current_score = self._score_ocr_candidate(
+            current_text,
+            current_confidence,
+            current_lang,
+        )
+        candidate_score = self._score_ocr_candidate(
+            candidate_text,
+            candidate_confidence,
+            candidate_lang,
+        )
+
+        if candidate_score >= current_score + 1.5:
+            return True
+
+        return (
+            candidate_confidence >= current_confidence + 3.0
+            and len(candidate_text.strip()) >= max(100, int(len(current_text.strip()) * 0.75))
+        )
+
+    def _should_try_layout_ocr(self, confidence: float, text: str) -> bool:
+        """
+        Run region-based OCR on hard pages where full-page OCR still looks weak.
+        """
+        if not HAS_CV2:
+            return False
+        if confidence >= LAYOUT_OCR_TRIGGER_CONFIDENCE:
+            return False
+        if confidence < 60.0:
+            return True
+
+        stripped = (text or "").strip()
+        quality_assessment = self._active_quality_assessment or {}
+        quality_score = float(quality_assessment.get("quality_score", 1.0) or 0.0)
+        difficulty = quality_assessment.get("document_difficulty")
+        quality_issues = set(quality_assessment.get("issues", []))
+
+        if not stripped or len(stripped) < 180:
+            return True
+        if _is_garbage_text(stripped):
+            return True
+        if difficulty == "hard":
+            return True
+        if quality_score < 0.65:
+            return True
+        if {"blurry", "very_blurry", "skewed", "heavily_skewed", "low_text_density"} & quality_issues:
+            return True
+        return False
+
+    def _merge_region_boxes(self, boxes: List[Tuple[int, int, int, int]]) -> List[Tuple[int, int, int, int]]:
+        if not boxes:
+            return []
+
+        boxes = sorted(boxes, key=lambda box: (box[1], box[0]))
+        merged = [boxes[0]]
+        for x1, y1, x2, y2 in boxes[1:]:
+            last_x1, last_y1, last_x2, last_y2 = merged[-1]
+            overlaps_vertically = y1 <= last_y2 + 30 and y2 >= last_y1 - 30
+            close_horizontally = x1 <= last_x2 + 40
+            if overlaps_vertically and close_horizontally:
+                merged[-1] = (
+                    min(last_x1, x1),
+                    min(last_y1, y1),
+                    max(last_x2, x2),
+                    max(last_y2, y2),
+                )
+            else:
+                merged.append((x1, y1, x2, y2))
+        return merged[:LAYOUT_OCR_MAX_REGIONS]
+
+    def _extract_text_regions(self, image: "Image.Image") -> List[Tuple[int, int, int, int]]:
+        """
+        Detect likely text blocks for hard forms, tables, and mixed-layout scans.
+        """
+        if not HAS_CV2:
+            return []
+
+        gray = np.array(image.convert("L"))
+        height, width = gray.shape
+        _, binary = cv2.threshold(
+            gray,
+            0,
+            255,
+            cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU,
+        )
+        kernel_width = max(25, width // 28)
+        kernel_height = max(7, height // 90)
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (kernel_width, kernel_height))
+        dilated = cv2.dilate(binary, kernel, iterations=1)
+        contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        min_area = max(5000, int(width * height * 0.003))
+        raw_boxes: List[Tuple[int, int, int, int]] = []
+        for contour in contours:
+            x, y, w, h = cv2.boundingRect(contour)
+            area = w * h
+            if area < min_area:
+                continue
+            if w < width * 0.08 or h < 25:
+                continue
+            pad_x = max(12, int(w * 0.02))
+            pad_y = max(12, int(h * 0.12))
+            raw_boxes.append(
+                (
+                    max(0, x - pad_x),
+                    max(0, y - pad_y),
+                    min(width, x + w + pad_x),
+                    min(height, y + h + pad_y),
+                )
+            )
+
+        return self._merge_region_boxes(raw_boxes)
+
+    def _select_region_psm(self, region_box: Tuple[int, int, int, int]) -> int:
+        x1, y1, x2, y2 = region_box
+        width = max(1, x2 - x1)
+        height = max(1, y2 - y1)
+        aspect_ratio = width / height
+        if aspect_ratio >= 4.0:
+            return 6
+        if aspect_ratio <= 1.1:
+            return 11
+        return 4
+
+    def _run_layout_ocr(
+        self,
+        image: "Image.Image",
+        current_text: str,
+        current_confidence: float,
+        lang_string: str,
+    ) -> Tuple[str, float]:
+        """
+        OCR each detected text region separately and keep the combined result if it is better.
+        """
+        boxes = self._extract_text_regions(image)
+        if len(boxes) < LAYOUT_OCR_MIN_REGIONS:
+            return current_text, current_confidence
+
+        logger.info(f"Trying layout OCR with {len(boxes)} text region(s)")
+
+        region_texts: List[str] = []
+        region_confidences: List[float] = []
+
+        for box in boxes:
+            crop = image.crop(box)
+            crop = self._normalize_input_image(crop)
+            crop = self._cap_large_image_for_ocr(crop)
+            crop = self._enhance_image(
+                crop,
+                aggressive=True,
+                enable_deskew=True,
+                enable_shadow_removal=True,
+            )
+            psm = self._select_region_psm(box)
+            text, confidence = self._ocr_with_config(crop, lang_string, psm)
+
+            detected_lang = _detect_script_from_text(text)
+            if self._should_run_paddleocr(confidence, text, detected_lang) and HAS_PADDLEOCR:
+                paddle_text, paddle_conf = self._run_paddleocr(crop, detected_lang)
+                paddle_lang = _detect_script_from_text(paddle_text)
+                if self._should_replace_ocr_result(
+                    text,
+                    confidence,
+                    detected_lang,
+                    paddle_text,
+                    paddle_conf,
+                    paddle_lang,
+                ):
+                    text, confidence = paddle_text, paddle_conf
+                    detected_lang = paddle_lang
+
+            cleaned = (text or "").strip()
+            if cleaned:
+                region_texts.append(cleaned)
+                region_confidences.append(confidence)
+
+        if not region_texts:
+            return current_text, current_confidence
+
+        combined_text = "\n\n".join(region_texts)
+        weighted_confidence = sum(region_confidences) / len(region_confidences)
+        combined_lang = _detect_script_from_text(combined_text)
+        if self._should_replace_ocr_result(
+            current_text,
+            current_confidence,
+            _detect_script_from_text(current_text),
+            combined_text,
+            weighted_confidence,
+            combined_lang,
+        ):
+            logger.info(
+                f"Layout OCR improved result to confidence={weighted_confidence:.1f}% "
+                f"with {len(combined_text)} chars"
+            )
+            return combined_text, weighted_confidence
+
+        logger.info("Layout OCR did not improve results")
+        return current_text, current_confidence
+
+    def _should_try_targeted_language_retry(
+        self,
+        confidence: float,
+        text: str,
+        lang_string: str,
+        targeted_lang_string: str,
+    ) -> bool:
+        """
+        Targeted-language retry is useful for uncertain short outputs, but it is
+        expensive on already-dense pages and rarely helps there.
+        """
+        if targeted_lang_string == lang_string:
+            return False
+        stripped = (text or "").strip()
+        if len(stripped) < 80:
+            return False
+        if confidence >= TARGETED_LANG_RETRY_MAX_CONF:
+            return False
+        if confidence < 60.0 and len(stripped) >= 500 and not _is_garbage_text(stripped):
+            return False
+        return True
+
+    def _should_try_psm_11(self, confidence: float, text: str) -> bool:
+        """
+        Only use sparse-text mode when the faster dense-text passes still look weak.
+        """
+        stripped = (text or "").strip()
+        if (
+            confidence >= HIGH_CONFIDENCE_EARLY_EXIT
+            and len(stripped) >= MIN_TEXT_CHARS_FOR_EARLY_EXIT
+        ):
+            return False
+        if not stripped:
+            return True
+        if len(stripped) < SPARSE_TEXT_RETRY_CHAR_THRESHOLD:
+            return True
+        if _is_garbage_text(stripped):
+            return True
+        return confidence < PSM_11_RETRY_CONFIDENCE_THRESHOLD
+
+    def _get_aggressive_psm_candidates(self, best_psm: int, text: str) -> List[int]:
+        """
+        Limit aggressive retries to the current best PSM and one targeted alternative.
+        """
+        candidates = [best_psm]
+        stripped = (text or "").strip()
+        if len(stripped) < SPARSE_TEXT_RETRY_CHAR_THRESHOLD or _is_garbage_text(stripped):
+            alternate = 11
+        elif best_psm == 6:
+            alternate = 3
+        else:
+            alternate = 6
+
+        if alternate not in candidates:
+            candidates.append(alternate)
+        return candidates
+
+    def _store_run_summary(self, file_path: Path, summary: Dict[str, Any]) -> None:
+        """Cache the latest OCR summary so metadata extraction can reuse it."""
+        self._last_run_source = str(file_path.resolve())
+        self._last_run_summary = summary
+
+    def _build_run_summary(
+        self,
+        *,
+        extension: str,
+        page_results: List[Dict[str, Any]],
+        pdf_render_threads: Optional[int] = None,
+        page_workers_used: int = 1,
+    ) -> Dict[str, Any]:
+        """Summarize OCR execution for downstream metrics and debugging."""
+        confidences = [float(page["confidence"]) for page in page_results if page["confidence"] > 0]
+        engine_usage: Dict[str, int] = {}
+        language_usage: Dict[str, int] = {}
+        page_timings: List[float] = []
+
+        for page in page_results:
+            engine_usage[page["engine"]] = engine_usage.get(page["engine"], 0) + 1
+            language_usage[page["language"]] = language_usage.get(page["language"], 0) + 1
+            page_timings.append(round(float(page["elapsed_seconds"]), 3))
+
+        summary: Dict[str, Any] = {
+            "num_pages": len(page_results),
+            "ocr_run_summary": {
+                "page_count": len(page_results),
+                "average_page_confidence": round(sum(confidences) / len(confidences), 2)
+                if confidences
+                else 0.0,
+                "engine_usage": engine_usage,
+                "language_usage": language_usage,
+                "page_processing_seconds": page_timings,
+                "page_workers_used": page_workers_used,
+            },
+        }
+
+        if extension == ".pdf":
+            summary["ocr_run_summary"]["pdf_render_dpi"] = config.OCR_PDF_RENDER_DPI
+            summary["ocr_run_summary"]["pdf_render_threads"] = pdf_render_threads or 1
+
+        return summary
+
+    def _cap_large_image_for_ocr(self, image: "Image.Image") -> "Image.Image":
+        """
+        Bound very large images before OCR so oversized RGBA inputs do not force
+        Tesseract through needlessly expensive passes.
+        """
+        w, h = image.size
+        pixels = w * h
+        max_pixels = max(1, config.MAX_OCR_IMAGE_PIXELS)
+        if pixels <= max_pixels:
+            return image
+
+        scale = (max_pixels / pixels) ** 0.5
+        new_size = (max(1, int(w * scale)), max(1, int(h * scale)))
+        logger.info(
+            f"Capping OCR input size {w}×{h} -> {new_size[0]}×{new_size[1]} "
+            f"(max_pixels={max_pixels})"
+        )
+        return image.resize(new_size, Image.LANCZOS)
+
+    def _process_pdf_page(
+        self,
+        image: "Image.Image",
+        page_num: int,
+        total_pages: int,
+    ) -> Dict[str, Any]:
+        """Run OCR for a single PDF page and keep timing/engine diagnostics."""
+        started = time.perf_counter()
+        logger.info(f"OCR processing page {page_num}/{total_pages}")
+        text, confidence, lang, engine = self.extract_text_from_image(image)
+        return {
+            "page_num": page_num,
+            "text": text,
+            "confidence": confidence,
+            "language": lang,
+            "engine": engine,
+            "elapsed_seconds": time.perf_counter() - started,
+        }
 
     def _normalize_input_image(self, image: "Image.Image") -> "Image.Image":
         """
@@ -913,7 +1408,11 @@ class OCRExtractor(BaseExtractor):
                 image = image.resize(new_size, Image.LANCZOS)
 
             img_array = np.array(image.convert("RGB"))
-            results = reader.ocr(img_array, cls=False)
+            predict_method = getattr(reader, "predict", None)
+            if callable(predict_method):
+                results = predict_method(img_array)
+            else:
+                results = reader.ocr(img_array)
             if not results:
                 return "", 0.0
 
@@ -922,6 +1421,22 @@ class OCRExtractor(BaseExtractor):
             for block in results:
                 if not block:
                     continue
+
+                if isinstance(block, dict):
+                    texts = block.get("rec_texts") or []
+                    scores = block.get("rec_scores") or []
+                    for index, text in enumerate(texts):
+                        cleaned = str(text).strip()
+                        if not cleaned:
+                            continue
+                        lines.append(cleaned)
+                        if index < len(scores):
+                            try:
+                                confidences.append(float(scores[index]) * 100.0)
+                            except Exception:
+                                pass
+                    continue
+
                 for item in block:
                     if not isinstance(item, (list, tuple)) or len(item) < 2:
                         continue
@@ -1038,6 +1553,7 @@ class OCRExtractor(BaseExtractor):
             # Step 0: Universal normalisation — must run FIRST
             # Guarantees: RGB, min 1200px short-side, correct polarity, baseline contrast
             image = self._normalize_input_image(image)
+            image = self._cap_large_image_for_ocr(image)
 
             # Step 1: Auto-orient (fix rotated/upside-down scans)
             # OSD is now reliable because min resolution is guaranteed
@@ -1051,9 +1567,10 @@ class OCRExtractor(BaseExtractor):
             lang_string = self._build_lang_string()
             logger.info(f"Tier 1 — Tesseract OCR with: {lang_string}")
 
-            # Adaptive PSM: try 3, 6, 11 with early-exit on high confidence
+            # Try dense-text modes first and only use sparse-text mode when
+            # the faster passes still look uncertain.
             best_text, best_conf, best_psm = "", -1.0, 3
-            for psm in [3, 6, 11]:
+            for psm in [3, 6]:
                 t, c = self._ocr_with_config(processed, lang_string, psm)
                 logger.info(f"  PSM {psm}: conf={c:.1f}%, chars={len(t.strip())}")
                 if c > best_conf:
@@ -1067,15 +1584,22 @@ class OCRExtractor(BaseExtractor):
                     )
                     break
 
+            if self._should_try_psm_11(best_conf, best_text):
+                t, c = self._ocr_with_config(processed, lang_string, 11)
+                logger.info(f"  PSM 11: conf={c:.1f}%, chars={len(t.strip())}")
+                if c > best_conf:
+                    best_conf, best_text, best_psm = c, t, 11
+
             logger.info(f"Tier 1 best: PSM {best_psm}, confidence={best_conf:.1f}%")
 
             # Script-targeted retry for uncertain outputs (single extra pass)
             detected_from_t1 = _detect_script_from_text(best_text)
             targeted_lang_string = self._build_targeted_lang_string(detected_from_t1)
-            if (
-                targeted_lang_string != lang_string
-                and best_conf < TARGETED_LANG_RETRY_MAX_CONF
-                and len((best_text or "").strip()) >= 80
+            if self._should_try_targeted_language_retry(
+                best_conf,
+                best_text,
+                lang_string,
+                targeted_lang_string,
             ):
                 t_targeted, c_targeted = self._ocr_with_config(
                     processed, targeted_lang_string, best_psm
@@ -1100,7 +1624,7 @@ class OCRExtractor(BaseExtractor):
                     enable_deskew=True,
                     enable_shadow_removal=True,
                 )
-                for psm in [3, 6, 11]:
+                for psm in self._get_aggressive_psm_candidates(best_psm, best_text):
                     t, c = self._ocr_with_config(processed_agg, lang_string, psm)
                     logger.info(
                         f"  Aggressive PSM {psm}: conf={c:.1f}%, chars={len(t.strip())}"
@@ -1112,6 +1636,50 @@ class OCRExtractor(BaseExtractor):
                 )
 
             engine_used = "tesseract"
+            detected_lang = _detect_script_from_text(best_text)
+
+            if self._should_try_layout_ocr(best_conf, best_text):
+                layout_text, layout_conf = self._run_layout_ocr(
+                    image,
+                    best_text,
+                    best_conf,
+                    lang_string,
+                )
+                layout_lang = _detect_script_from_text(layout_text)
+                if self._should_replace_ocr_result(
+                    best_text,
+                    best_conf,
+                    detected_lang,
+                    layout_text,
+                    layout_conf,
+                    layout_lang,
+                ):
+                    best_text = layout_text
+                    best_conf = layout_conf
+                    engine_used = "tesseract_layout"
+                    detected_lang = layout_lang
+
+            if self._should_run_paddleocr(best_conf, best_text, detected_lang) and HAS_PADDLEOCR:
+                logger.info(
+                    f"Trying PaddleOCR on {detected_lang} output at {best_conf:.1f}% confidence"
+                )
+                paddle_text, paddle_conf = self._run_paddleocr(image, detected_lang)
+                paddle_lang = _detect_script_from_text(paddle_text)
+                if self._should_replace_ocr_result(
+                    best_text,
+                    best_conf,
+                    detected_lang,
+                    paddle_text,
+                    paddle_conf,
+                    paddle_lang,
+                ):
+                    best_text = paddle_text
+                    best_conf = paddle_conf
+                    engine_used = "paddleocr"
+                    detected_lang = paddle_lang
+                    logger.info(f"PaddleOCR selected with confidence={paddle_conf:.1f}%")
+                else:
+                    logger.info("PaddleOCR did not improve results, keeping current output")
 
             # Tier 2: EasyOCR fallback
             if self._should_run_easyocr(best_conf, best_text) and HAS_EASYOCR:
@@ -1119,10 +1687,19 @@ class OCRExtractor(BaseExtractor):
                     f"Confidence {best_conf:.1f}% < {EASYOCR_FALLBACK_THRESHOLD}% — switching to EasyOCR fallback"
                 )
                 easy_text, easy_conf = self._run_easyocr(image)
-                if easy_conf > best_conf and easy_text.strip():
+                easy_lang = _detect_script_from_text(easy_text)
+                if self._should_replace_ocr_result(
+                    best_text,
+                    best_conf,
+                    detected_lang,
+                    easy_text,
+                    easy_conf,
+                    easy_lang,
+                ):
                     best_text = easy_text
                     best_conf = easy_conf
                     engine_used = "easyocr"
+                    detected_lang = easy_lang
                     logger.info(f"EasyOCR improved confidence to {easy_conf:.1f}%")
                 else:
                     logger.info(
@@ -1151,7 +1728,12 @@ class OCRExtractor(BaseExtractor):
             log_error("OCRImageExtraction", str(e))
             return "", 0.0, "eng", "none"
 
-    def extract_text(self, file_path: Path, language: Optional[str] = None) -> str:
+    def extract_text(
+        self,
+        file_path: Path,
+        language: Optional[str] = None,
+        quality_assessment: Optional[Dict[str, Any]] = None,
+    ) -> str:
         """
         Extract text from a scanned document or image file.
         Language is always auto-detected per-page (Case 5).
@@ -1162,29 +1744,61 @@ class OCRExtractor(BaseExtractor):
         start_time = time.time()
         extension = file_path.suffix.lower()
         full_text = []
+        self._active_quality_assessment = quality_assessment or {}
 
         try:
             if extension == ".pdf":
                 logger.info(f"Converting scanned PDF to images: {file_path.name}")
-                images = convert_from_path(str(file_path), dpi=300)
+                render_threads = max(1, config.OCR_PDF_RENDER_THREADS)
+                images = convert_from_path(
+                    str(file_path),
+                    dpi=config.OCR_PDF_RENDER_DPI,
+                    thread_count=render_threads,
+                )
                 logger.info(f"PDF has {len(images)} page(s)")
+                total_pages = len(images)
+                page_workers = max(1, min(config.OCR_PAGE_WORKERS, total_pages))
 
-                for page_num, image in enumerate(images, 1):
-                    logger.info(f"OCR processing page {page_num}/{len(images)}")
-                    # Case 5: Detect language independently per page (no lock)
-                    text, confidence, lang, engine = self.extract_text_from_image(image)
-
-                    lang_display = self.supported_languages.get(lang, lang)
-                    if text.strip():
-                        full_text.append(
-                            f"\n--- Page {page_num} "
-                            f"(Language: {lang_display}, "
-                            f"OCR Confidence: {confidence:.1f}%, "
-                            f"Engine: {engine}) ---\n"
+                if page_workers > 1 and total_pages > 1:
+                    logger.info(
+                        f"Parallel OCR enabled for {total_pages} PDF pages with {page_workers} workers"
+                    )
+                    with ThreadPoolExecutor(max_workers=page_workers) as executor:
+                        page_results = list(
+                            executor.map(
+                                lambda args: self._process_pdf_page(args[0], args[1], total_pages),
+                                [(image, page_num) for page_num, image in enumerate(images, 1)],
+                            )
                         )
-                        full_text.append(text)
+                else:
+                    page_results = [
+                        self._process_pdf_page(image, page_num, total_pages)
+                        for page_num, image in enumerate(images, 1)
+                    ]
+
+                page_results.sort(key=lambda item: item["page_num"])
+                for page in page_results:
+                    lang_display = self.supported_languages.get(page["language"], page["language"])
+                    if page["text"].strip():
+                        full_text.append(
+                            f"\n--- Page {page['page_num']} "
+                            f"(Language: {lang_display}, "
+                            f"OCR Confidence: {page['confidence']:.1f}%, "
+                            f"Engine: {page['engine']}) ---\n"
+                        )
+                        full_text.append(page["text"])
                     else:
-                        logger.warning(f"No text extracted from page {page_num}")
+                        logger.warning(f"No text extracted from page {page['page_num']}")
+
+                self._store_run_summary(
+                    file_path,
+                    self._build_run_summary(
+                        extension=extension,
+                        page_results=page_results,
+                        pdf_render_threads=render_threads,
+                        page_workers_used=page_workers,
+                    ),
+                )
 
             else:
                 logger.info(f"OCR processing image: {file_path.name}")
@@ -1196,6 +1810,23 @@ class OCRExtractor(BaseExtractor):
                     f"[Language: {lang_display}, OCR Confidence: {confidence:.1f}%, Engine: {engine}]\n"
                 )
                 full_text.append(text)
+                self._store_run_summary(
+                    file_path,
+                    self._build_run_summary(
+                        extension=extension,
+                        page_results=[
+                            {
+                                "page_num": 1,
+                                "text": text,
+                                "confidence": confidence,
+                                "language": lang,
+                                "engine": engine,
+                                "elapsed_seconds": time.time() - start_time,
+                            }
+                        ],
+                        page_workers_used=1,
+                    ),
+                )
 
             result = "\n".join(full_text)
             extraction_time = time.time() - start_time
@@ -1205,21 +1836,43 @@ class OCRExtractor(BaseExtractor):
         except Exception as e:
             log_error("OCRExtraction", str(e), f"File: {file_path}")
             raise
+        finally:
+            self._active_quality_assessment = {}
 
     def extract_metadata(self, file_path: Path) -> Dict[str, Any]:
         """Extract metadata from scanned document."""
         try:
             metadata: Dict[str, Any] = {
                 "extraction_method": "ocr",
-                "ocr_engine": "tesseract+easyocr" if HAS_EASYOCR else "tesseract",
+                "ocr_engine": "tesseract+paddleocr+easyocr"
+                if HAS_PADDLEOCR and HAS_EASYOCR
+                else "tesseract+easyocr"
+                if HAS_EASYOCR
+                else "tesseract+paddleocr"
+                if HAS_PADDLEOCR
+                else "tesseract",
                 "available_languages": self._available_langs,
                 "easyocr_available": HAS_EASYOCR,
+                "paddleocr_available": HAS_PADDLEOCR,
             }
 
             extension = file_path.suffix.lower()
+            resolved_path = str(file_path.resolve())
+            if self._last_run_source == resolved_path and self._last_run_summary:
+                metadata.update(self._last_run_summary)
+                if extension != ".pdf":
+                    with Image.open(file_path) as img:
+                        metadata["dimensions"] = img.size
+                        metadata["mode"] = img.mode
+                return metadata
+
             if extension == ".pdf":
-                images = convert_from_path(str(file_path), dpi=72)
-                metadata["num_pages"] = len(images)
+                if HAS_PDFINFO:
+                    info = pdfinfo_from_path(str(file_path))
+                    metadata["num_pages"] = int(info.get("Pages", 0))
+                else:
+                    images = convert_from_path(str(file_path), dpi=72)
+                    metadata["num_pages"] = len(images)
             else:
                 with Image.open(file_path) as img:
                     metadata["num_pages"] = 1
@@ -1235,6 +1888,9 @@ class OCRExtractor(BaseExtractor):
     def get_page_count(self, file_path: Path) -> int:
         try:
             if file_path.suffix.lower() == ".pdf":
+                if HAS_PDFINFO:
+                    info = pdfinfo_from_path(str(file_path))
+                    return int(info.get("Pages", 0))
                 images = convert_from_path(str(file_path), dpi=72)
                 return len(images)
             return 1

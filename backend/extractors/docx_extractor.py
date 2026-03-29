@@ -11,8 +11,12 @@ from docx import Document
 from docx.table import Table, _Cell
 from docx.text.paragraph import Paragraph
 from docx.oxml.ns import qn
-from extractors.base_extractor import BaseExtractor
-from logger import logger, log_extraction, log_error
+try:
+    from extractors.base_extractor import BaseExtractor
+    from logger import logger, log_extraction, log_error
+except ModuleNotFoundError:
+    from backend.extractors.base_extractor import BaseExtractor
+    from backend.logger import logger, log_extraction, log_error
 import time
 
 
