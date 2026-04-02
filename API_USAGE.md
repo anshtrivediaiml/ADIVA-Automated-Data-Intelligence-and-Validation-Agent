@@ -208,7 +208,7 @@ MAX_UPLOAD_SIZE=10485760
 
 Edit `backend/api/routes/extraction.py`:
 ```python
-MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+MAX_FILE_SIZE = 50 * 1024 * 1024  
 ALLOWED_EXTENSIONS = {'.pdf', '.docx', '.png', '.jpg'}
 ```
 

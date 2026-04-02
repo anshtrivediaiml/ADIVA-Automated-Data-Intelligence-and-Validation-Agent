@@ -56,7 +56,7 @@ for directory in [EXTRACTED_DIR, VALIDATED_DIR, LOGS_DIR, SAMPLES_DIR]:
 # File Upload Settings
 # ========================
 
-MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+MAX_FILE_SIZE = 50 * 1024 * 1024  # 10 MB
 ALLOWED_EXTENSIONS = {".pdf", ".docx"}
 
 # ========================
