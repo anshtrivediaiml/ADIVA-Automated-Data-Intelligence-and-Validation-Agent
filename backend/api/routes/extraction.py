@@ -20,6 +20,7 @@ sys.path.insert(0, str(backend_path))
 from api.models.responses import ExtractionResponse, BatchResponse, ErrorResponse
 
 from extractor import DocumentExtractor
+from database import store_extraction
 from logger import logger
 import config
 
@@ -127,6 +128,12 @@ async def extract_document(
             processing_time=round(processing_time, 2)
         )
         
+        # Store in MongoDB
+        try:
+            store_extraction(extraction_id, result)
+        except Exception as db_err:
+            logger.warning(f"MongoDB storage failed (extraction still saved to disk): {db_err}")
+        
         logger.info(f"Extraction completed: {extraction_id} in {processing_time:.2f}s")
         return response
     
@@ -206,6 +213,12 @@ async def extract_batch(
                     },
                     extracted_data=result  # Include the complete extraction result
                 ))
+                
+                # Store in MongoDB
+                try:
+                    store_extraction(extraction_id, result)
+                except Exception as db_err:
+                    logger.warning(f"MongoDB batch storage failed for {extraction_id}: {db_err}")
             
             except Exception as e:
                 failed += 1

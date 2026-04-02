@@ -1,0 +1,543 @@
+# ADIVA — End-to-End Architecture & Deep Dive
+
+## 1. What is ADIVA?
+
+**ADIVA** (**A**utomated **D**ata **I**ntelligence and **V**alidation **A**gent) is an AI-powered document extraction and validation pipeline. You upload a document (PDF, DOCX, image) → it extracts structured data using OCR + LLM → then the Validation Agent quality-checks and normalises the output.
+
+---
+
+## 2. High-Level Architecture
+
+```mermaid
+graph TB
+    subgraph "CLIENT"
+        U[User / Frontend]
+    end
+
+    subgraph "FASTAPI SERVER"
+        API[FastAPI App<br/>main.py]
+        HR[Health Routes]
+        ER[Extraction Routes]
+        RR[Results Routes]
+        VR[Validation Routes]
+    end
+
+    subgraph "EXTRACTION PIPELINE"
+        PP[DocumentPreprocessor]
+        PE[PDFExtractor]
+        OE[OCRExtractor]
+        DE[DOCXExtractor]
+        EO[DocumentExtractor<br/>Orchestrator]
+        AI[AIAgent<br/>Mistral LLM]
+        CS[ConfidenceScorer]
+        SC[Schema Registry<br/>21 document types]
+        EX[Exporters<br/>CSV · Excel · HTML]
+    end
+
+    subgraph "VALIDATION PIPELINE"
+        VA[ValidationAgent]
+        P1[Pillar 1: Math Check]
+        P2[Pillar 2: LLM Sanity]
+        P3[Pillar 3: Normalisation]
+        P4[Pillar 4: Truth Tests]
+        AR[AuditReport<br/>Pydantic schema]
+    end
+
+    subgraph "STORAGE"
+        FS["outputs/extracted/<br/>JSON · CSV · XLSX · HTML"]
+        VS["outputs/validated/<br/>Audit Reports"]
+        LOG["outputs/logs/"]
+        DB[(MongoDB)]
+    end
+
+    U -->|Upload file| API
+    API --> HR & ER & RR & VR
+
+    ER -->|POST /extract| EO
+    EO --> PP --> PE & OE & DE
+    EO --> AI
+    AI --> SC
+    EO --> CS
+    EO --> EX
+    EO -->|Save| FS
+
+    VR -->|POST /validate| VA
+    VA --> P1 & P2 & P3 & P4
+    P2 & P4 -->|LLM calls| AI
+    VA --> AR
+    AR -->|Save| VS
+
+    RR -->|GET /results| FS
+    API --> LOG
+    API --> DB
+```
+
+---
+
+## 3. Complete Project Structure
+
+```
+ADIVA/
+├── .env                          # API keys, DB URI, config
+├── .env.example                  # Template for env vars
+├── requirements.txt              # Python dependencies
+│
+├── backend/
+│   ├── config.py                 # ⚙️  Centralised configuration
+│   ├── logger.py                 # 📝 Loguru-based logging
+│   ├── database.py               # 🗄️  MongoDB connection singleton
+│   │
+│   ├── extractor.py              # 🎯 Extraction orchestrator
+│   ├── ai_agent.py               # 🧠 Mistral LLM integration
+│   ├── confidence_scorer.py      # 📊 Multi-metric confidence scoring
+│   ├── validator.py              # (legacy placeholder)
+│   │
+│   ├── extractors/               # 📄 Format-specific extractors
+│   │   ├── base_extractor.py     #    Abstract base class
+│   │   ├── preprocessor.py       #    File type detection & quality
+│   │   ├── pdf_extractor.py      #    Digital PDF (pdfplumber/camelot/tabula)
+│   │   ├── ocr_extractor.py      #    Scanned docs (Tesseract + EasyOCR)
+│   │   └── docx_extractor.py     #    Word documents
+│   │
+│   ├── schemas/                  # 📋 21 document-type schemas
+│   │   ├── base_schema.py        #    Abstract schema base
+│   │   ├── invoice_schema.py     #    Invoices
+│   │   ├── resume_schema.py      #    Resumes / CVs
+│   │   ├── contract_schema.py    #    Contracts
+│   │   ├── id_schemas.py         #    Aadhaar, PAN, DL, Passport
+│   │   ├── financial_schemas.py  #    Cheque, Form 16, Insurance, GST
+│   │   ├── govt_schemas.py       #    Birth/Death cert, Land, NREGA
+│   │   └── ...                   #    + certificate, prescription, utility
+│   │
+│   ├── exporters/                # 📤 Output format generators
+│   │   ├── csv_exporter.py
+│   │   ├── excel_exporter.py
+│   │   └── html_exporter.py
+│   │
+│   ├── agents/                   # 🤖 Validation Agent
+│   │   └── validator/
+│   │       ├── __init__.py
+│   │       ├── schemas.py        #    AuditReport Pydantic models
+│   │       └── logic.py          #    ValidationAgent class (4 pillars)
+│   │
+│   └── api/                      # 🌐 FastAPI application
+│       ├── main.py               #    App creation, middleware, startup
+│       ├── models/
+│       │   └── responses.py      #    Pydantic response models
+│       └── routes/
+│           ├── health.py         #    GET /api/health, /api/status
+│           ├── extraction.py     #    POST /api/extract, /api/extract/batch
+│           ├── results.py        #    GET /api/results, /api/download, ...
+│           └── validation.py     #    POST /api/validate/..., GET reports
+│
+├── outputs/
+│   ├── extracted/                # Extraction results per document
+│   ├── validated/                # Audit reports from validation
+│   └── logs/                     # Application logs
+│
+└── data/
+    └── samples/                  # Sample input documents
+```
+
+---
+
+## 4. REST API Endpoints
+
+### 🟢 Health
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/health` | Dependency status (Tesseract, Mistral, OCR, MongoDB) |
+| `GET` | `/api/status` | Detailed API config and feature flags |
+
+### 📄 Extraction
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/extract` | Upload **one** document → get structured data |
+| `POST` | `/api/extract/batch` | Upload **up to 20** documents at once |
+
+**Request:** `multipart/form-data` with a file field.
+**Response:** [ExtractionResponse](file:///c:/Users/JapanKachhiya/ADIVA-Automated-Data-Intelligence-and-Validation-Agent/backend/api/models/responses.py#L12-L41) with `extraction_id`, `document_type`, `confidence`, `files`, `extracted_data`, `processing_time`.
+
+### 📂 Results
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/results/{extraction_id}` | Full JSON result of an extraction |
+| `GET` | `/api/download/{extraction_id}/{format}` | Download as `json`, `csv`, `xlsx`, or `html` |
+| `GET` | `/api/extractions` | Paginated list of all extractions (with optional `document_type` filter) |
+| `DELETE` | `/api/extractions/{extraction_id}` | Delete an extraction and all its files |
+
+### ✅ Validation
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/validate/file` | Upload a JSON/CSV file for validation |
+| `POST` | `/api/validate/{extraction_id}` | Validate a previous extraction by ID |
+| `GET` | `/api/validate/reports` | Paginated list of saved audit reports |
+| `GET` | `/api/validate/report/{filename}` | Retrieve a specific audit report |
+
+---
+
+## 5. Extraction Pipeline (Deep Dive)
+
+When you call `POST /api/extract`, here's **exactly** what happens inside:
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant API as extraction.py
+    participant EO as DocumentExtractor
+    participant PP as Preprocessor
+    participant EXT as PDF/OCR/DOCX Extractor
+    participant AI as AIAgent (Mistral)
+    participant CS as ConfidenceScorer
+    participant EXP as Exporters
+    participant FS as File System
+
+    User->>API: POST /api/extract (file)
+    API->>API: validate_file() (size, extension)
+    API->>API: save_upload_file() → temp path
+    API->>EO: extract(file_path)
+
+    Note over EO: Step 1 — Preprocess
+    EO->>PP: detect_file_type()
+    PP-->>EO: "pdf" | "docx" | "image"
+    EO->>PP: assess_quality()
+    PP-->>EO: {quality_score, is_scanned, ...}
+
+    Note over EO: Step 2 — Select Extractor
+    alt Digital PDF
+        EO->>EXT: PDFExtractor
+    else Scanned PDF / Image
+        EO->>EXT: OCRExtractor
+    else DOCX
+        EO->>EXT: DOCXExtractor
+    end
+
+    Note over EO: Step 3 — Extract Content
+    EO->>EXT: extract_text()
+    EXT-->>EO: raw text (1539 chars, 207 words)
+    EO->>EO: Detect language (eng/hin/guj)
+
+    Note over EO: Step 4 — Extract Metadata
+    EO->>EXT: extract_metadata()
+    EXT-->>EO: {author, creator, pages, ...}
+
+    Note over EO: Step 5 — Extract Tables
+    EO->>EXT: extract_tables()
+    EXT-->>EO: [{headers, rows, data, source}, ...]
+
+    Note over EO: Step 6 — AI Classification
+    EO->>AI: classify_document(text_sample)
+    AI-->>EO: {type: "resume", confidence: 0.99}
+
+    Note over EO: Step 7 — Structured Extraction
+    EO->>AI: extract_structured_data(text, "resume")
+    Note over AI: Uses SCHEMA_REGISTRY to get<br/>ResumeSchema fields & prompt
+    AI-->>EO: {personal_info, education, skills, ...}
+
+    Note over EO: Step 8 — Confidence Scoring
+    EO->>CS: calculate_comprehensive_confidence()
+    CS-->>EO: {overall: 0.892, grade: "B+", metrics: {...}}
+
+    Note over EO: Step 9 — Export to Multiple Formats
+    EO->>EXP: CSV, Excel, HTML exporters
+    EO->>FS: Save extraction.json, .csv, .xlsx, .html
+
+    EO-->>API: complete result dict
+    API-->>User: ExtractionResponse JSON
+```
+
+### 5.1 Preprocessor ([preprocessor.py](file:///c:/Users/JapanKachhiya/ADIVA-Automated-Data-Intelligence-and-Validation-Agent/backend/extractors/preprocessor.py))
+
+- **File type detection** — extension + magic bytes (libmagic if available)
+- **Quality assessment** — readability score 0-1, page count, scanned vs digital detection
+- **Scanned PDF detection** — checks text-to-page ratio: if digital PDF has very little text, it's treated as scanned
+- **Page splitting** — splits multi-page PDFs for per-page processing
+
+### 5.2 Extractors
+
+| Extractor | File | Input | Key Features |
+|-----------|------|-------|--------------|
+| [PDFExtractor](file:///c:/Users/JapanKachhiya/ADIVA-Automated-Data-Intelligence-and-Validation-Agent/backend/extractors/pdf_extractor.py) | `pdf_extractor.py` | Digital PDFs | 3-backend table extraction (pdfplumber → camelot → tabula), deduplication |
+| [OCRExtractor](file:///c:/Users/JapanKachhiya/ADIVA-Automated-Data-Intelligence-and-Validation-Agent/backend/extractors/ocr_extractor.py) | `ocr_extractor.py` | Scanned PDFs, Images | 2-tier OCR (Tesseract → EasyOCR fallback), auto-rotation, deskew, shadow removal, DPI detection, multi-script support (English/Hindi/Gujarati) |
+| [DOCXExtractor](file:///c:/Users/JapanKachhiya/ADIVA-Automated-Data-Intelligence-and-Validation-Agent/backend/extractors/docx_extractor.py) | `docx_extractor.py` | Word .docx | Merged cell detection, table structure analysis, paragraph extraction |
+
+### 5.3 AI Agent ([ai_agent.py](file:///c:/Users/JapanKachhiya/ADIVA-Automated-Data-Intelligence-and-Validation-Agent/backend/ai_agent.py))
+
+The LLM brain of ADIVA. Uses **Mistral AI** for two critical tasks:
+
+**1. Document Classification** (`classify_document`)
+- Sends a 2000-char text sample to Mistral
+- Returns one of 21 document types + confidence score + reasoning
+- Example: `{type: "resume", confidence: 0.99, reasoning: "..."}`
+
+**2. Structured Data Extraction** (`extract_structured_data`)
+- Looks up the matching schema from `SCHEMA_REGISTRY` (e.g., `ResumeSchema`)
+- Builds a structured prompt with the schema definition + extraction instructions
+- For **long documents (>8000 chars)**: uses **chunked extraction** with overlap, then merges results
+- Merge rule: later chunks fill in `null` fields, lists are extended (not replaced)
+- Parses JSON from LLM response (handles markdown fences, partial JSON)
+
+### 5.4 Schema Registry ([schemas/](file:///c:/Users/JapanKachhiya/ADIVA-Automated-Data-Intelligence-and-Validation-Agent/backend/schemas/__init__.py))
+
+21 document types, each with:
+- `get_schema()` → field definitions the LLM must extract
+- `get_prompt_instructions()` → detailed extraction rules
+- `get_required_fields()` → mandatory fields for validation
+
+````carousel
+**General Documents**
+| Type | Required Fields |
+|------|----------------|
+| `invoice` | invoice_number, invoice_date, vendor.name, total |
+| `resume` | personal_info, education, skills |
+| `contract` | parties, effective_date, terms |
+| `prescription` | patient, medications |
+| `certificate` | certificate_number, issued_to |
+<!-- slide -->
+**Identity Documents (Indian)**
+| Type | Required Fields |
+|------|----------------|
+| `aadhar_card` | aadhaar_number, name, dob |
+| `pan_card` | pan_number, name |
+| `driving_licence` | dl_number, name, validity |
+| `passport` | passport_number, name, nationality |
+<!-- slide -->
+**Financial Documents**
+| Type | Required Fields |
+|------|----------------|
+| `cheque` | cheque_number, bank_name, amount |
+| `form_16` | employee_name, pan, assessment_year |
+| `insurance_policy` | policy_number, insured_name |
+| `gst_certificate` | gstin, legal_name |
+<!-- slide -->
+**Civic & Government Records**
+| Type | Required Fields |
+|------|----------------|
+| `bank_statement` | account_number, transactions |
+| `utility_bill` | consumer_number, amount_due |
+| `marksheet` | student_name, subjects |
+| `ration_card` | card_number, head_of_family |
+| `birth_certificate` | name, date_of_birth, place |
+| `death_certificate` | name, date_of_death |
+| `land_record` | survey_number, owner_name |
+| `nrega_card` | job_card_number, household_head |
+````
+
+### 5.5 Confidence Scorer ([confidence_scorer.py](file:///c:/Users/JapanKachhiya/ADIVA-Automated-Data-Intelligence-and-Validation-Agent/backend/confidence_scorer.py))
+
+Calculates a **multi-metric confidence** score with these dimensions:
+
+| Metric | Weight | What it measures |
+|--------|--------|-----------------|
+| `schema_completeness` | High | % of required fields present |
+| `data_quality` | High | Valid formats, non-null values |
+| `field_confidence` | Medium | Per-field extraction confidence |
+| `consistency` | Medium | Logical consistency (e.g., totals match) |
+| `ocr_quality` | Low | OCR-specific quality (if applicable) |
+
+Output: `{overall: 0.892, grade: "B+", explanations: [...], recommendations: [...]}`
+
+### 5.6 Exporters
+
+Each extraction produces **4 output formats** in the extraction folder:
+
+| Format | File | Exporter |
+|--------|------|----------|
+| JSON | `extraction.json` | Built-in `json.dump` |
+| CSV | `extraction.csv` | [csv_exporter.py](file:///c:/Users/JapanKachhiya/ADIVA-Automated-Data-Intelligence-and-Validation-Agent/backend/exporters/csv_exporter.py) — flattens nested data |
+| Excel | `extraction.xlsx` | [excel_exporter.py](file:///c:/Users/JapanKachhiya/ADIVA-Automated-Data-Intelligence-and-Validation-Agent/backend/exporters/excel_exporter.py) — styled workbook with sheets |
+| HTML | `extraction.html` | [html_exporter.py](file:///c:/Users/JapanKachhiya/ADIVA-Automated-Data-Intelligence-and-Validation-Agent/backend/exporters/html_exporter.py) — styled report page |
+
+---
+
+## 6. Validation Pipeline (Deep Dive)
+
+When you call `POST /api/validate/{extraction_id}`, here's what happens:
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant API as validation.py
+    participant VA as ValidationAgent
+    participant LLM as Mistral AI
+    participant FS as File System
+
+    User->>API: POST /api/validate/{id}
+    API->>VA: validate_extraction(id)
+    VA->>FS: Load extraction.json
+    VA->>VA: Extract structured_data + document_type
+
+    Note over VA: PILLAR 1 — Logical Consistency
+    VA->>VA: Check qty × price == total
+    VA->>VA: Check subtotal + tax == total
+    VA->>VA: Check Σ(line items) == subtotal
+    VA->>VA: Check education year ranges
+
+    Note over VA: PILLAR 2 — Contextual Sanity
+    VA->>LLM: "Audit this data for impossible values"
+    LLM-->>VA: [{field, severity, message}, ...]
+
+    Note over VA: PILLAR 3 — Schema & Format
+    VA->>VA: Dates → ISO 8601 (YYYY-MM-DD)
+    VA->>VA: Phones → +91XXXXXXXXXX
+    VA->>VA: Currency strings → float
+
+    Note over VA: PILLAR 4 — Truth Tests
+    VA->>LLM: "Generate 3 truth-test assertions"
+    LLM-->>VA: [{test_name, assertion, passed, detail}, ...]
+
+    VA->>VA: Compute confidence score
+    VA->>FS: Save audit report to outputs/validated/
+    VA-->>API: AuditReport
+    API-->>User: JSON response
+```
+
+### 6.1 Pillar 1: Logical Consistency (Math Check)
+
+Performed **without LLM** — pure Python math:
+
+```python
+# For each line item:
+if quantity × unit_price ≠ total:      → ERROR
+
+# Invoice-level:
+if subtotal + tax ≠ total:             → ERROR
+if Σ(line_item.total) ≠ subtotal:      → WARNING
+
+# Resume-specific:
+if graduation_year > now + 10:         → WARNING
+if graduation_year < 1950:             → WARNING
+```
+
+> [!IMPORTANT]
+> Uses `math.isclose(tol=2%)` to handle minor floating-point / rounding differences.
+
+### 6.2 Pillar 2: Contextual Sanity (LLM Common-Sense)
+
+Sends the extracted data to Mistral with strict rules:
+- Dates must be reasonable for the document type
+- Monetary values must be within plausible ranges
+- Physical quantities (age, weight, height) must be realistic
+- Phone numbers must have valid digit counts
+- Percentages must be 0–100
+
+The LLM responds with a JSON array of issues, each with `field`, `severity`, and `message`.
+
+### 6.3 Pillar 3: Normalisation Layer
+
+**Recursive walker** that traverses the entire data structure:
+
+| Field Pattern | Transformation | Example |
+|--------------|----------------|---------|
+| `*date*`, `*dob*`, `*expiry*` | → ISO 8601 | `04/03/2026` → `2026-03-04` |
+| `*phone*`, `*mobile*`, `*tel*` | → E.164-ish | `7383256143` → `+917383256143` |
+| `*amount*`, `*total*`, `*price*` | → `float` | `₹1,500.00` → `1500.0` |
+
+Every change is logged as a `NormalisationChange` with `field`, `original_value`, `normalised_value`, and `rule_applied`.
+
+### 6.4 Pillar 4: Autonomous Truth Tests
+
+The LLM generates **3 unique logical assertions** for each document:
+
+**Example for a resume:**
+1. ✅ `non_null_personal_contact_info` — "Email and phone must not be null"
+2. ❌ `education_graduation_date_format` — "All dates must be YYYY-MM"
+3. ❌ `projects_technologies_consistency` — "All project techs must exist in skills"
+
+Failed tests are added to the error log as `WARNING` severity.
+
+### 6.5 Confidence Score Calculation
+
+```
+Start at 1.0
+  − 0.15 per ERROR
+  − 0.05 per WARNING
+  − 0.08 per failed truth test
+  Clamp to [0.0, 1.0]
+```
+
+### 6.6 AuditReport Schema
+
+```python
+class AuditReport(BaseModel):
+    is_valid: bool                         # No ERROR-level issues?
+    confidence_score: float                # 0.0 – 1.0
+    error_log: List[ValidationError]       # All issues found
+    normalized_data: Dict[str, Any]        # Data after normalisation
+    normalisation_changes: List[...]       # What was normalised
+    truth_tests: List[TruthTestResult]     # 3 LLM-generated tests
+    source_file: Optional[str]
+    document_type: Optional[str]
+    validation_time_seconds: Optional[float]
+```
+
+---
+
+## 7. Key Design Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| **Mistral AI** as the LLM | Cost-effective, fast, strong JSON output adherence |
+| **21 document schemas** | Covers the most common Indian administrative + business documents |
+| **3-backend table extraction** | pdfplumber is fastest but misses complex layouts; camelot handles scanned tables; tabula is a final fallback |
+| **2-tier OCR** | Tesseract is fast for printed text; EasyOCR (deep learning) handles handwriting when Tesseract confidence < 60% |
+| **Validation Agent as a separate service** | Decoupled from extraction — can validate external data too |
+| **4 output formats** | JSON for APIs, CSV for spreadsheets, Excel for business users, HTML for browser viewing |
+| **Pydantic everywhere** | Strict schema enforcement for both API responses and audit reports |
+
+---
+
+## 8. Data Flow Summary
+
+```
+📄 Document Upload
+      │
+      ▼
+┌─────────────────────────────┐
+│  EXTRACTION PIPELINE         │
+│                              │
+│  Preprocess → Detect Type    │
+│  → Extract Text/Tables       │
+│  → AI Classify (21 types)    │
+│  → AI Structured Extract     │
+│  → Confidence Score          │
+│  → Export (JSON/CSV/XLS/HTML)│
+└────────────┬────────────────┘
+             │ extraction.json
+             ▼
+┌─────────────────────────────┐
+│  VALIDATION PIPELINE         │
+│                              │
+│  ① Math Check (no LLM)      │
+│  ② Common Sense (LLM)       │
+│  ③ Normalise dates/phones   │
+│  ④ 3 Truth Tests (LLM)      │
+│  → AuditReport               │
+└────────────┬────────────────┘
+             │ audit_report.json
+             ▼
+        📊 Quality-assured data
+```
+
+---
+
+## 9. Running the System
+
+```bash
+# 1. Install dependencies
+pip install -r requirements.txt
+
+# 2. Set environment variables
+cp .env.example .env
+# Edit .env with your MISTRAL_API_KEY, MONGO_URI
+
+# 3. Start the server
+uvicorn backend.api.main:app --reload --port 8081
+
+# 4. Open Swagger docs
+# → http://localhost:8081/docs
+```

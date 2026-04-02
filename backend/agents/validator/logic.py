@@ -28,6 +28,7 @@ from mistralai import Mistral
 
 import config
 from logger import logger, log_error
+from database import store_validation
 
 from agents.validator.schemas import (
     AuditReport,
@@ -753,7 +754,8 @@ Respond ONLY with a JSON array of 3 objects:
         return []
 
     def _save_report(self, report: AuditReport, source_file: str) -> None:
-        """Persist the audit report to ``outputs/validated/``."""
+        """Persist the audit report to ``outputs/validated/`` and MongoDB."""
+        # --- File system ---
         try:
             self.validated_dir.mkdir(parents=True, exist_ok=True)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -765,4 +767,18 @@ Respond ONLY with a JSON array of 3 objects:
 
             logger.info(f"Audit report saved → {out_path.name}")
         except Exception as exc:
-            logger.error(f"Failed to persist audit report: {exc}")
+            logger.error(f"Failed to persist audit report to disk: {exc}")
+
+        # --- MongoDB ---
+        try:
+            # Derive an extraction_id from the source path
+            # e.g. .../outputs/extracted/20260304_105036_resume/extraction.json
+            source_path = Path(source_file) if source_file else None
+            if source_path and source_path.parent.parent.name in ("extracted", "validated"):
+                extraction_id = source_path.parent.name
+            else:
+                extraction_id = stem if source_file else f"standalone_{timestamp}"
+
+            store_validation(extraction_id, report.model_dump(mode="json"))
+        except Exception as exc:
+            logger.warning(f"Failed to persist audit report to MongoDB: {exc}")
