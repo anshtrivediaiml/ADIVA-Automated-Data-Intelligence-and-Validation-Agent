@@ -14,7 +14,7 @@ import sys
 backend_path = Path(__file__).parent.parent
 sys.path.insert(0, str(backend_path))
 
-from api.routes import extraction, results, health, validation, jobs, review
+from api.routes import dashboard, extraction, results, health, validation, jobs, review
 from api.auth import routes as auth_routes
 from api.errors import error_response, validation_error_response
 from api.middleware.request_context import RequestContextMiddleware, SecurityHeadersMiddleware
@@ -83,6 +83,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 # Include routers
 app.include_router(health.router,       prefix="/api",  tags=["Health"])
 app.include_router(auth_routes.router,  prefix="/api",  tags=["Authentication"])
+app.include_router(dashboard.router,    prefix="/api",  tags=["Dashboard"])
 app.include_router(extraction.router,   prefix="/api",  tags=["Extraction"])
 app.include_router(jobs.router,         prefix="/api",  tags=["Jobs"])
 app.include_router(results.router,      prefix="/api",  tags=["Results"])

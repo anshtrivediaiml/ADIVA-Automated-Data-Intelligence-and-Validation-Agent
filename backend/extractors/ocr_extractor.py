@@ -51,6 +51,35 @@ except ImportError:
     HAS_PDFINFO = False
     logger.warning("OCR dependencies not available. Install pytesseract and pdf2image.")
 
+
+def _ensure_tesseract_on_path() -> None:
+    """
+    img2table shells out to plain `tesseract`, so the worker process PATH must
+    include the binary directory even if pytesseract is configured explicitly.
+    """
+    try:
+        configured_cmd = getattr(pytesseract.pytesseract, "tesseract_cmd", None) if HAS_OCR else None
+    except Exception:
+        configured_cmd = None
+
+    candidate = None
+    if configured_cmd:
+        candidate = Path(str(configured_cmd))
+    elif config.TESSERACT_CMD_PATH:
+        candidate = Path(config.TESSERACT_CMD_PATH)
+
+    if not candidate:
+        return
+
+    binary_dir = str(candidate.parent)
+    current_path = os.environ.get("PATH", "")
+    path_entries = current_path.split(os.pathsep) if current_path else []
+    if binary_dir and binary_dir not in path_entries:
+        os.environ["PATH"] = binary_dir + os.pathsep + current_path if current_path else binary_dir
+
+
+_ensure_tesseract_on_path()
+
 # ── OpenCV for advanced preprocessing ───────────────────────────────────────
 try:
     import cv2
@@ -635,6 +664,7 @@ class OCRExtractor(BaseExtractor):
         current_text: str,
         current_confidence: float,
         lang_string: str,
+        preprocessing_profile: str = "balanced",
     ) -> Tuple[str, float]:
         """
         OCR each detected text region separately and keep the combined result if it is better.
@@ -657,6 +687,7 @@ class OCRExtractor(BaseExtractor):
                 aggressive=True,
                 enable_deskew=True,
                 enable_shadow_removal=True,
+                profile=preprocessing_profile,
             )
             psm = self._select_region_psm(box)
             text, confidence = self._ocr_with_config(crop, lang_string, psm)
@@ -761,6 +792,102 @@ class OCRExtractor(BaseExtractor):
             candidates.append(alternate)
         return candidates
 
+    def _infer_preprocessing_profile(self, text: str, confidence: float = 0.0) -> str:
+        """
+        Choose a generic preprocessing profile from OCR content plus quality signals.
+        This stays content-driven and avoids file-specific hardcoding.
+        """
+        stripped = (text or "").strip()
+        quality_assessment = self._active_quality_assessment or {}
+        quality_issues = set(quality_assessment.get("issues", []))
+        difficulty = quality_assessment.get("document_difficulty")
+
+        if _looks_like_marksheet(stripped):
+            return "academic_table"
+
+        if _looks_like_business_document(stripped):
+            return "financial_table"
+
+        if difficulty == "hard" or {
+            "underexposed",
+            "overexposed",
+            "very_blurry",
+            "blurry",
+            "skewed",
+            "heavily_skewed",
+            "noisy_background",
+        } & quality_issues:
+            return "photo_scan"
+
+        if confidence and confidence >= HIGH_CONFIDENCE_EARLY_EXIT and len(stripped) >= 250:
+            return "balanced"
+
+        return "balanced"
+
+    def _preprocessing_profile_options(self, profile: str, aggressive: bool) -> Dict[str, Any]:
+        """
+        Map a content profile to enhancement settings.
+        Profiles are generic by document structure, not by specific files.
+        """
+        base: Dict[str, Any] = {
+            "target_short_side": 1500,
+            "target_dpi": 300,
+            "cleanup_background": aggressive,
+            "preserve_grid_lines": False,
+            "clahe_clip_limit": 3.0 if aggressive else 2.2,
+            "clahe_tile_grid": (8, 8),
+            "denoise_strength": 15 if aggressive else 10,
+            "threshold_block_size": 15,
+            "threshold_c": 4,
+            "morph_kernel": (2, 2) if aggressive else (1, 1),
+            "pil_contrast": 2.5 if aggressive else 2.0,
+        }
+
+        if profile == "financial_table":
+            base.update(
+                {
+                    "target_short_side": 1700,
+                    "cleanup_background": False,
+                    "preserve_grid_lines": True,
+                    "clahe_clip_limit": 2.4 if aggressive else 2.0,
+                    "denoise_strength": 10 if aggressive else 8,
+                    "threshold_block_size": 21,
+                    "threshold_c": 6,
+                    "morph_kernel": (1, 2),
+                    "pil_contrast": 2.1 if aggressive else 1.9,
+                }
+            )
+        elif profile == "academic_table":
+            base.update(
+                {
+                    "target_short_side": 1650,
+                    "cleanup_background": False,
+                    "preserve_grid_lines": True,
+                    "clahe_clip_limit": 2.3 if aggressive else 1.9,
+                    "denoise_strength": 9 if aggressive else 7,
+                    "threshold_block_size": 19,
+                    "threshold_c": 5,
+                    "morph_kernel": (1, 2),
+                    "pil_contrast": 2.0 if aggressive else 1.8,
+                }
+            )
+        elif profile == "photo_scan":
+            base.update(
+                {
+                    "target_short_side": 1600,
+                    "cleanup_background": aggressive,
+                    "preserve_grid_lines": False,
+                    "clahe_clip_limit": 3.4 if aggressive else 2.4,
+                    "denoise_strength": 17 if aggressive else 11,
+                    "threshold_block_size": 17,
+                    "threshold_c": 5,
+                    "morph_kernel": (2, 2),
+                    "pil_contrast": 2.7 if aggressive else 2.1,
+                }
+            )
+
+        return base
+
     def _store_run_summary(self, file_path: Path, summary: Dict[str, Any]) -> None:
         """Cache the latest OCR summary so metadata extraction can reuse it."""
         self._last_run_source = str(file_path.resolve())
@@ -804,6 +931,92 @@ class OCRExtractor(BaseExtractor):
             summary["ocr_run_summary"]["pdf_render_threads"] = pdf_render_threads or 1
 
         return summary
+
+    def _infer_preprocessing_profile(self, text: str, confidence: float = 0.0) -> str:
+        """
+        Choose a generic preprocessing profile from OCR content and quality signals.
+        """
+        stripped = (text or "").strip()
+        quality_assessment = self._active_quality_assessment or {}
+        quality_issues = set(quality_assessment.get("issues", []))
+        difficulty = quality_assessment.get("document_difficulty")
+
+        if _looks_like_marksheet(stripped):
+            return "academic_table"
+        if _looks_like_business_document(stripped):
+            return "financial_table"
+        if difficulty == "hard" or {
+            "underexposed",
+            "overexposed",
+            "very_blurry",
+            "blurry",
+            "skewed",
+            "heavily_skewed",
+            "noisy_background",
+        } & quality_issues:
+            return "photo_scan"
+        if confidence >= HIGH_CONFIDENCE_EARLY_EXIT and len(stripped) >= MIN_TEXT_CHARS_FOR_EARLY_EXIT:
+            return "balanced"
+        return "balanced"
+
+    def _preprocessing_profile_options(self, profile: str, aggressive: bool) -> Dict[str, Any]:
+        base: Dict[str, Any] = {
+            "target_short_side": 1500,
+            "target_dpi": 300,
+            "cleanup_background": aggressive,
+            "preserve_grid_lines": False,
+            "clahe_clip_limit": 3.0 if aggressive else 2.2,
+            "clahe_tile_grid": (8, 8),
+            "denoise_strength": 15 if aggressive else 10,
+            "threshold_block_size": 15,
+            "threshold_c": 4,
+            "morph_kernel": (2, 2) if aggressive else (1, 1),
+            "pil_contrast": 2.5 if aggressive else 2.0,
+        }
+
+        if profile == "financial_table":
+            base.update(
+                {
+                    "target_short_side": 1700,
+                    "cleanup_background": False,
+                    "preserve_grid_lines": True,
+                    "clahe_clip_limit": 2.4 if aggressive else 2.0,
+                    "denoise_strength": 10 if aggressive else 8,
+                    "threshold_block_size": 21,
+                    "threshold_c": 6,
+                    "morph_kernel": (1, 2),
+                    "pil_contrast": 2.1 if aggressive else 1.9,
+                }
+            )
+        elif profile == "academic_table":
+            base.update(
+                {
+                    "target_short_side": 1650,
+                    "cleanup_background": False,
+                    "preserve_grid_lines": True,
+                    "clahe_clip_limit": 2.3 if aggressive else 1.9,
+                    "denoise_strength": 9 if aggressive else 7,
+                    "threshold_block_size": 19,
+                    "threshold_c": 5,
+                    "morph_kernel": (1, 2),
+                    "pil_contrast": 2.0 if aggressive else 1.8,
+                }
+            )
+        elif profile == "photo_scan":
+            base.update(
+                {
+                    "target_short_side": 1600,
+                    "cleanup_background": aggressive,
+                    "preserve_grid_lines": False,
+                    "clahe_clip_limit": 3.4 if aggressive else 2.4,
+                    "denoise_strength": 17 if aggressive else 11,
+                    "threshold_block_size": 17,
+                    "threshold_c": 5,
+                    "morph_kernel": (2, 2),
+                    "pil_contrast": 2.7 if aggressive else 2.1,
+                }
+            )
+        return base
 
     def _cap_large_image_for_ocr(self, image: "Image.Image") -> "Image.Image":
         """
@@ -1130,6 +1343,31 @@ class OCRExtractor(BaseExtractor):
             logger.debug(f"Background cleanup failed: {e}")
             return image
 
+    def _cleanup_background_table_safe(self, image: "Image.Image") -> "Image.Image":
+        """
+        Lighter cleanup for table-heavy documents to preserve grid lines.
+        """
+        if not HAS_CV2:
+            return image
+
+        try:
+            gray = np.array(image.convert("L"))
+            blur = cv2.GaussianBlur(gray, (3, 3), 0)
+            thresh = cv2.adaptiveThreshold(
+                blur,
+                255,
+                cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                cv2.THRESH_BINARY,
+                blockSize=15,
+                C=5,
+            )
+            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 2))
+            cleaned = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
+            return Image.fromarray(cleaned)
+        except Exception as e:
+            logger.debug(f"Table-safe background cleanup failed: {e}")
+            return image
+
     def _detect_dpi(self, image: "Image.Image") -> int:
         """
         Detect approximate DPI of the image.
@@ -1180,6 +1418,7 @@ class OCRExtractor(BaseExtractor):
         aggressive: bool = False,
         enable_deskew: bool = True,
         enable_shadow_removal: bool = True,
+        profile: str = "balanced",
     ) -> "Image.Image":
         """
         Enhanced image preprocessing pipeline.
@@ -1193,6 +1432,7 @@ class OCRExtractor(BaseExtractor):
         6. CLAHE + denoising + adaptive threshold
         """
         try:
+            options = self._preprocessing_profile_options(profile, aggressive)
             # Step 1: RGBA → RGB
             if image.mode in ("RGBA", "LA", "P"):
                 background = Image.new("RGB", image.size, (255, 255, 255))
@@ -1220,9 +1460,9 @@ class OCRExtractor(BaseExtractor):
             w, h = image.size
             min_dim = min(w, h)
 
-            target_dpi = 300
+            target_dpi = int(options["target_dpi"])
             if detected_dpi < 150:
-                target_dpi = 400
+                target_dpi = max(target_dpi, 400)
                 aggressive = True
                 logger.info(
                     f"Low DPI detected ({detected_dpi}), using aggressive enhancement"
@@ -1230,7 +1470,7 @@ class OCRExtractor(BaseExtractor):
 
             scale = 1
             if min_dim < 1000:
-                scale = max(2, 1500 // min_dim)
+                scale = max(2, int(options["target_short_side"]) // min_dim)
             elif detected_dpi < 150:
                 scale = max(2, target_dpi // detected_dpi)
 
@@ -1253,8 +1493,11 @@ class OCRExtractor(BaseExtractor):
                 image = image.resize((new_w, new_h), Image.LANCZOS)
 
             # Step 5: Background cleanup (aggressive mode)
-            if aggressive and HAS_CV2:
-                image = self._cleanup_background(image)
+            if aggressive and HAS_CV2 and options["cleanup_background"]:
+                if options["preserve_grid_lines"]:
+                    image = self._cleanup_background_table_safe(image)
+                else:
+                    image = self._cleanup_background(image)
 
             # Step 6: Grayscale + CLAHE + threshold
             gray = image.convert("L")
@@ -1263,34 +1506,45 @@ class OCRExtractor(BaseExtractor):
                 img_array = np.array(gray)
 
                 if aggressive:
-                    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+                    clahe = cv2.createCLAHE(
+                        clipLimit=float(options["clahe_clip_limit"]),
+                        tileGridSize=tuple(options["clahe_tile_grid"]),
+                    )
                     img_array = clahe.apply(img_array)
 
                     blurred = cv2.GaussianBlur(img_array, (0, 0), 3)
                     img_array = cv2.addWeighted(img_array, 1.5, blurred, -0.5, 0)
 
-                    img_array = cv2.fastNlMeansDenoising(img_array, h=15)
+                    img_array = cv2.fastNlMeansDenoising(
+                        img_array,
+                        h=int(options["denoise_strength"]),
+                    )
 
                     thresh = cv2.adaptiveThreshold(
                         img_array,
                         255,
                         cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                         cv2.THRESH_BINARY,
-                        blockSize=15,
-                        C=4,
+                        blockSize=int(options["threshold_block_size"]),
+                        C=int(options["threshold_c"]),
                     )
 
-                    kernel = np.ones((2, 2), np.uint8)
+                    kernel = np.ones(tuple(options["morph_kernel"]), np.uint8)
                     thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
+                    if not options["preserve_grid_lines"]:
+                        thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel)
                 else:
-                    denoised = cv2.fastNlMeansDenoising(img_array, h=10)
+                    denoised = cv2.fastNlMeansDenoising(
+                        img_array,
+                        h=int(options["denoise_strength"]),
+                    )
                     thresh = cv2.adaptiveThreshold(
                         denoised,
                         255,
                         cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                         cv2.THRESH_BINARY,
-                        blockSize=15,
-                        C=4,
+                        blockSize=int(options["threshold_block_size"]),
+                        C=int(options["threshold_c"]),
                     )
 
                 return Image.fromarray(thresh)
@@ -1301,7 +1555,7 @@ class OCRExtractor(BaseExtractor):
                     )
                 sharpened = gray.filter(ImageFilter.SHARPEN)
                 enhancer = ImageEnhance.Contrast(sharpened)
-                return enhancer.enhance(2.5 if aggressive else 2.0)
+                return enhancer.enhance(float(options["pil_contrast"]))
 
         except Exception as e:
             logger.warning(f"Image enhancement failed, using original: {e}")
@@ -1483,7 +1737,8 @@ class OCRExtractor(BaseExtractor):
             try:
                 doc = Img2TableImage(src=tmp_path, detect_rotation=False)
                 ocr = TesseractOCR(
-                    n_threads=1, lang=self._build_lang_string().replace("+", "-")
+                    n_threads=1,
+                    lang=self._build_lang_string(),
                 )
                 tables = doc.extract_tables(
                     ocr=ocr,
@@ -1560,8 +1815,13 @@ class OCRExtractor(BaseExtractor):
             image = self._auto_orient_image(image)
 
             # Step 2: Normal enhancement (includes deskew, DPI detection)
+            base_profile = "balanced"
             processed = self._enhance_image(
-                image, aggressive=False, enable_deskew=True, enable_shadow_removal=False
+                image,
+                aggressive=False,
+                enable_deskew=True,
+                enable_shadow_removal=False,
+                profile=base_profile,
             )
 
             lang_string = self._build_lang_string()
@@ -1591,6 +1851,7 @@ class OCRExtractor(BaseExtractor):
                     best_conf, best_text, best_psm = c, t, 11
 
             logger.info(f"Tier 1 best: PSM {best_psm}, confidence={best_conf:.1f}%")
+            adaptive_profile = self._infer_preprocessing_profile(best_text, best_conf)
 
             # Script-targeted retry for uncertain outputs (single extra pass)
             detected_from_t1 = _detect_script_from_text(best_text)
@@ -1623,6 +1884,7 @@ class OCRExtractor(BaseExtractor):
                     aggressive=True,
                     enable_deskew=True,
                     enable_shadow_removal=True,
+                    profile=adaptive_profile,
                 )
                 for psm in self._get_aggressive_psm_candidates(best_psm, best_text):
                     t, c = self._ocr_with_config(processed_agg, lang_string, psm)
@@ -1644,6 +1906,7 @@ class OCRExtractor(BaseExtractor):
                     best_text,
                     best_conf,
                     lang_string,
+                    adaptive_profile,
                 )
                 layout_lang = _detect_script_from_text(layout_text)
                 if self._should_replace_ocr_result(
@@ -1896,3 +2159,85 @@ class OCRExtractor(BaseExtractor):
             return 1
         except Exception:
             return 1
+
+    def _normalize_image_table(
+        self,
+        table: Dict[str, Any],
+        *,
+        page_num: int,
+        table_num: int,
+        source: str,
+    ) -> Optional[Dict[str, Any]]:
+        headers = [str(value) if value is not None else "" for value in (table.get("headers") or [])]
+        rows = [
+            [str(cell) if cell is not None else "" for cell in row]
+            for row in (table.get("rows") or [])
+            if isinstance(row, list)
+        ]
+        if not headers or len(headers) < 2 or not rows:
+            return None
+
+        data = []
+        for row in rows:
+            if len(row) == len(headers):
+                data.append({headers[index]: row[index] for index in range(len(headers))})
+
+        return {
+            "page": page_num,
+            "table_num": table_num,
+            "headers": headers,
+            "rows": rows,
+            "data": data,
+            "source": source,
+            "row_count": len(rows),
+            "col_count": len(headers),
+        }
+
+    def extract_tables(self, file_path: Path) -> list:
+        """
+        Extract tables from scanned images or scanned PDFs using img2table.
+        """
+        if not HAS_IMG2TABLE or not HAS_OCR:
+            return []
+
+        extension = file_path.suffix.lower()
+        all_tables: List[Dict[str, Any]] = []
+        try:
+            if extension == ".pdf":
+                render_threads = max(1, min(config.OCR_PDF_RENDER_THREADS, 2))
+                images = convert_from_path(
+                    str(file_path),
+                    dpi=max(220, config.OCR_PDF_RENDER_DPI),
+                    thread_count=render_threads,
+                )
+                for page_num, image in enumerate(images, 1):
+                    page_tables = self.extract_tables_from_image(image)
+                    for table_index, table in enumerate(page_tables, 1):
+                        normalized = self._normalize_image_table(
+                            table,
+                            page_num=page_num,
+                            table_num=len(all_tables) + table_index,
+                            source="img2table_pdf",
+                        )
+                        if normalized:
+                            all_tables.append(normalized)
+            else:
+                with Image.open(file_path) as image:
+                    page_tables = self.extract_tables_from_image(image)
+                for table_index, table in enumerate(page_tables, 1):
+                    normalized = self._normalize_image_table(
+                        table,
+                        page_num=1,
+                        table_num=table_index,
+                        source="img2table_image",
+                    )
+                    if normalized:
+                        all_tables.append(normalized)
+        except Exception as exc:
+            logger.warning(f"OCR table extraction failed for {file_path.name}: {exc}")
+            return []
+
+        for index, table in enumerate(all_tables, 1):
+            table["table_num"] = index
+        logger.info(f"OCR extractor found {len(all_tables)} table(s) in {file_path.name}")
+        return all_tables

@@ -42,6 +42,10 @@ class Document(Base):
     storage_uri = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
+    __table_args__ = (
+        Index("ix_documents_user_created_at", "user_id", "created_at"),
+    )
+
 
 class Extraction(Base):
     __tablename__ = "extractions"
@@ -68,6 +72,8 @@ class Extraction(Base):
 
     __table_args__ = (
         Index("ix_extractions_status_created_at", "status", "created_at"),
+        Index("ix_extractions_user_created_at", "user_id", "created_at"),
+        Index("ix_extractions_user_status_created_at", "user_id", "status", "created_at"),
     )
 
 
@@ -83,6 +89,10 @@ class ExtractionResult(Base):
     metadata_jsonb = Column(JSONB, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
+    __table_args__ = (
+        Index("ix_extraction_results_extraction_id", "extraction_id"),
+    )
+
 
 class ExtractionOutput(Base):
     __tablename__ = "extraction_outputs"
@@ -94,6 +104,10 @@ class ExtractionOutput(Base):
     size_bytes = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
+    __table_args__ = (
+        Index("ix_extraction_outputs_extraction_id", "extraction_id"),
+    )
+
 
 class ValidationReport(Base):
     __tablename__ = "validation_reports"
@@ -104,6 +118,10 @@ class ValidationReport(Base):
     issues_jsonb = Column(JSONB, nullable=True)
     quality_score = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        Index("ix_validation_reports_extraction_id", "extraction_id"),
+    )
 
 
 class AuditLog(Base):
@@ -140,6 +158,8 @@ class ReviewCase(Base):
     __table_args__ = (
         UniqueConstraint("extraction_id", name="uq_review_cases_extraction_id"),
         Index("ix_review_cases_status_created_at", "status", "created_at"),
+        Index("ix_review_cases_user_created_at", "user_id", "created_at"),
+        Index("ix_review_cases_user_status_created_at", "user_id", "status", "created_at"),
     )
 
 

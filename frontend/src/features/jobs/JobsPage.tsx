@@ -1,78 +1,138 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, useCallback, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { Download, Eye, FileText, RefreshCw, Search, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { jobsApi } from '@/lib/api/jobsApi';
 import { Pagination } from '@/components/ui/Pagination';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { StatusPill } from '@/components/ui/StatusPill';
-import { clampPage, formatDate, isTerminalStatus, paginateItems } from '@/lib/utils';
+import { formatDate } from '@/lib/utils';
 import type { Job, JobStatus } from '@/types/models';
 
 const PAGE_SIZE = 15;
 type StatusFilter = JobStatus | 'all';
 
 export default function JobsPage() {
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
-  const [page, setPage] = useState(1);
-  const [jobPendingDelete, setJobPendingDelete] = useState<Job | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
-  const apiStatusFilter =
-    statusFilter === 'all' || statusFilter === 'processing' ? undefined : statusFilter;
+  // ── Derive page & filter directly from URL (no useState lag) ──────────────
+  const page = (() => {
+    const raw = Number.parseInt(searchParams.get('page') ?? '1', 10);
+    return Number.isFinite(raw) && raw > 0 ? raw : 1;
+  })();
+  const statusFilter: StatusFilter = (() => {
+    const raw = searchParams.get('status');
+    const allowed: StatusFilter[] = ['all', 'queued', 'processing', 'completed', 'needs_review', 'low_confidence', 'failed'];
+    return allowed.includes(raw as StatusFilter) ? (raw as StatusFilter) : 'all';
+  })();
 
-  const { data, isLoading, isError, refetch, isFetching, dataUpdatedAt } = useQuery({
-    queryKey: ['jobs', 'list', apiStatusFilter ?? 'all'],
-    queryFn: () => jobsApi.list({ limit: 200, status: apiStatusFilter }),
+  // Debounced search — API call fires 300ms after user stops typing
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [jobPendingDelete, setJobPendingDelete] = useState<Job | null>(null);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  // returnTo is always correct because page/filter come straight from the URL
+  const returnTo = `${location.pathname}${location.search}`;
+
+  const setPage = useCallback((p: number) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (p > 1) next.set('page', String(p)); else next.delete('page');
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
+  const setStatusFilter = useCallback((filter: StatusFilter | ((prev: StatusFilter) => StatusFilter)) => {
+    setSearchParams(prev => {
+      const cur = (() => {
+        const raw = prev.get('status');
+        const allowed: StatusFilter[] = ['all', 'queued', 'processing', 'completed', 'needs_review', 'low_confidence', 'failed'];
+        return allowed.includes(raw as StatusFilter) ? (raw as StatusFilter) : 'all';
+      })();
+      const next = new URLSearchParams(prev);
+      const resolved = typeof filter === 'function' ? filter(cur) : filter;
+      if (resolved === 'all') next.delete('status'); else next.set('status', resolved);
+      next.delete('page'); // reset page on filter change
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
+  // Reset to page 1 when debounced search changes
+  useEffect(() => {
+    setPage(1);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedSearch]);
+
+  const {
+    data: summary,
+    refetch: refetchSummary,
+    isFetching: isSummaryFetching,
+  } = useQuery({
+    queryKey: ['jobs', 'summary'],
+    queryFn: () => jobsApi.summary(),
+    staleTime: 10_000,
+    refetchOnWindowFocus: false,
+  });
+
+  const {
+    data: listData,
+    isLoading,
+    isError,
+    refetch: refetchList,
+    isFetching,
+    dataUpdatedAt,
+  } = useQuery({
+    // API handles search and pagination
+    queryKey: ['jobs', 'table', page, statusFilter, debouncedSearch],
+    queryFn: () =>
+      jobsApi.listPage({
+        page,
+        pageSize: PAGE_SIZE,
+        status: statusFilter === 'all' ? undefined : statusFilter,
+        search: debouncedSearch || undefined,
+      }),
     staleTime: 10_000,
     refetchOnWindowFocus: false,
   });
 
   const deleteMutation = useMutation({
     mutationFn: (jobId: string) => jobsApi.remove(jobId),
-    onSuccess: (_, jobId) => {
-      queryClient.invalidateQueries({ queryKey: ['jobs'] });
-      queryClient.invalidateQueries({ queryKey: ['reviews'] });
-      queryClient.invalidateQueries({ queryKey: ['result'] });
-      queryClient.invalidateQueries({ queryKey: ['recovery'] });
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['jobs'] });
+      void queryClient.invalidateQueries({ queryKey: ['reviews'] });
+      void queryClient.invalidateQueries({ queryKey: ['result'] });
+      void queryClient.invalidateQueries({ queryKey: ['recovery'] });
     },
   });
 
-  const jobs: Job[] = data ?? [];
-  const hasLoadedData = jobs.length > 0;
+  const jobs: Job[] = listData?.jobs ?? [];
+  const filteredTotal = listData?.total ?? 0;
+  const totalJobs = summary?.total_jobs ?? filteredTotal;
+  const hasLoadedData = jobs.length > 0 || totalJobs > 0;
   const showInitialLoading = isLoading && !hasLoadedData;
+  const showTableLoading = isLoading && totalJobs > 0;
   const showHardError = isError && !hasLoadedData;
   const lastSyncedAt = dataUpdatedAt ? formatDate(new Date(dataUpdatedAt).toISOString()) : null;
 
-  const filteredJobs = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    return jobs.filter((job) => {
-      const matchesSearch =
-        !query ||
-        (job.file_name ?? '').toLowerCase().includes(query) ||
-        (job.doc_type ?? '').toLowerCase().includes(query) ||
-        job.job_id.toLowerCase().includes(query);
-      const matchesStatus =
-        statusFilter === 'all' ||
-        (statusFilter === 'processing'
-          ? job.status === 'processing' || job.status === 'queued'
-          : job.status === statusFilter);
-      return matchesSearch && matchesStatus;
-    });
-  }, [jobs, search, statusFilter]);
-
-  const paginatedJobs = paginateItems(filteredJobs, page, PAGE_SIZE);
-
+  // Clamp page to valid range
   useEffect(() => {
-    setPage((currentPage) => clampPage(currentPage, filteredJobs.length, PAGE_SIZE));
-  }, [filteredJobs.length]);
+    if (!listData) return;
+    const totalPages = Math.max(1, Math.ceil(filteredTotal / PAGE_SIZE));
+    if (page > totalPages) setPage(totalPages);
+  }, [filteredTotal, listData, page, setPage]);
 
-  const activeCount = jobs.filter((job) => !isTerminalStatus(job.status)).length;
-  const completedCount = jobs.filter((job) => job.status === 'completed').length;
-  const reviewCount = jobs.filter((job) => job.status === 'needs_review').length;
-  const failedCount = jobs.filter((job) => job.status === 'failed').length;
+  const activeCount = summary?.active_count ?? 0;
+  const completedCount = summary?.completed_count ?? 0;
+  const reviewCount = summary?.needs_review_count ?? 0;
+  const failedCount = summary?.failed_count ?? 0;
 
   const handleDelete = (job: Job) => {
     setJobPendingDelete(job);
@@ -87,6 +147,11 @@ export default function JobsPage() {
         setJobPendingDelete(null);
       },
     });
+  };
+
+  const refreshPageData = () => {
+    void refetchSummary();
+    void refetchList();
   };
 
   return (
@@ -108,8 +173,8 @@ export default function JobsPage() {
           <h2 className="text-2xl font-semibold text-white mb-1">Jobs</h2>
           <p className="text-gray-400 text-sm">Operational workspace for all submitted processing jobs</p>
         </div>
-        <button onClick={() => refetch()} className="btn-secondary text-sm inline-flex items-center gap-2">
-          <RefreshCw className={`w-4 h-4 ${isFetching ? 'animate-spin' : ''}`} />
+        <button onClick={refreshPageData} className="btn-secondary text-sm inline-flex items-center gap-2">
+          <RefreshCw className={`w-4 h-4 ${isFetching || isSummaryFetching ? 'animate-spin' : ''}`} />
           Refresh
         </button>
       </div>
@@ -117,7 +182,7 @@ export default function JobsPage() {
       <div className="grid grid-cols-4 gap-4 mb-6">
         <SummaryCard
           label="All Jobs"
-          value={jobs.length}
+          value={totalJobs}
           tone="slate"
           active={statusFilter === 'all'}
           onClick={() => setStatusFilter('all')}
@@ -180,17 +245,17 @@ export default function JobsPage() {
               <option value="completed">Completed</option>
               <option value="needs_review">Needs Review</option>
               <option value="low_confidence">Low Confidence</option>
-                <option value="failed">Failed</option>
-              </select>
+              <option value="failed">Failed</option>
+            </select>
           </div>
 
           {(search || statusFilter !== 'all') && (
             <div className="mt-4 flex items-center justify-between">
               <div className="flex items-center gap-2 text-sm">
                 <span className="px-2 py-0.5 rounded-full bg-[#4F46E5]/10 text-[#A5B4FC] border border-[#4F46E5]/20 font-medium">
-                  {filteredJobs.length} matches
+                  {filteredTotal} matches
                 </span>
-                <span className="text-gray-500">out of {jobs.length} total jobs</span>
+                <span className="text-gray-500">out of {totalJobs} total jobs</span>
               </div>
               <button
                 onClick={() => {
@@ -209,29 +274,44 @@ export default function JobsPage() {
       <div className="card">
         {showInitialLoading ? (
           <TableSkeleton />
+        ) : showTableLoading ? (
+          <>
+            <div className="px-6 py-4 border-b border-[#2A2A3E] flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-white">Job History</h3>
+                <p className="text-sm text-gray-400">Track status, review requirements, and results from one place</p>
+              </div>
+              <div className="flex items-center gap-3 text-sm text-gray-500">
+                <span>Loading page {page}...</span>
+              </div>
+            </div>
+            <TableSkeleton />
+          </>
         ) : showHardError ? (
           <EmptyState
             icon={<FileText className="w-12 h-12 opacity-30" />}
             message="Failed to load jobs."
             actionLabel="Retry"
-            onAction={() => refetch()}
+            onAction={refreshPageData}
           />
         ) : jobs.length === 0 ? (
           <EmptyState
-            icon={<FileText className="w-12 h-12 opacity-30" />}
-            message="No jobs yet. Upload a document to get started."
-            actionLabel="Upload Document"
-            actionTo="/upload"
-          />
-        ) : filteredJobs.length === 0 ? (
-          <EmptyState
-            icon={<Search className="w-12 h-12 opacity-30" />}
-            message="No jobs match your current filters."
-            actionLabel="Clear Filters"
-            onAction={() => {
-              setSearch('');
-              setStatusFilter('all');
-            }}
+            icon={totalJobs === 0 ? <FileText className="w-12 h-12 opacity-30" /> : <Search className="w-12 h-12 opacity-30" />}
+            message={
+              totalJobs === 0
+                ? 'No jobs yet. Upload a document to get started.'
+                : 'No jobs match your current filters.'
+            }
+            actionLabel={totalJobs === 0 ? 'Upload Document' : 'Clear Filters'}
+            actionTo={totalJobs === 0 ? '/upload' : undefined}
+            onAction={
+              totalJobs === 0
+                ? undefined
+                : () => {
+                    setSearch('');
+                    setStatusFilter('all');
+                  }
+            }
           />
         ) : (
           <>
@@ -241,7 +321,7 @@ export default function JobsPage() {
                 <p className="text-sm text-gray-400">Track status, review requirements, and results from one place</p>
               </div>
               <div className="flex items-center gap-3 text-sm text-gray-500">
-                <span>{filteredJobs.length} visible jobs</span>
+                <span>{filteredTotal} matching jobs</span>
                 {lastSyncedAt ? <span className="text-gray-600">Last synced {lastSyncedAt}</span> : null}
                 {isFetching && !isLoading ? (
                   <span className="inline-flex items-center gap-2 text-[#A5B4FC]">
@@ -265,10 +345,10 @@ export default function JobsPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#2A2A3E]">
-                  {paginatedJobs.map((job) => (
+                  {jobs.map((job) => (
                     <tr
                       key={job.job_id}
-                      onClick={() => navigate(`/jobs/${job.job_id}`)}
+                      onClick={() => navigate(`/jobs/${job.job_id}`, { state: { returnTo } })}
                       className="group cursor-pointer border-l-2 border-transparent hover:border-[#4F46E5] hover:bg-[#1F1F2E]/40 transition-all"
                     >
                       <td className="px-6 py-4 text-sm font-mono text-gray-500 group-hover:text-[#A5B4FC] transition-colors">
@@ -291,6 +371,7 @@ export default function JobsPage() {
                         <div className="flex justify-end gap-1">
                           <Link
                             to={`/jobs/${job.job_id}`}
+                            state={{ returnTo }}
                             className="rounded p-2 text-gray-400 transition-colors hover:bg-[#2A2A3E] hover:text-white"
                             title="Track Job"
                           >
@@ -299,6 +380,7 @@ export default function JobsPage() {
                           {['completed', 'needs_review', 'low_confidence'].includes(job.status) && (
                             <Link
                               to={`/jobs/${job.job_id}/result`}
+                              state={{ returnTo }}
                               className="rounded p-2 text-[#A5B4FC] bg-[#4F46E5]/10 border border-[#4F46E5]/20 transition-all hover:bg-[#4F46E5] hover:text-white shadow-sm"
                               title="View Result"
                             >
@@ -321,7 +403,7 @@ export default function JobsPage() {
                 </tbody>
               </table>
             </div>
-            <Pagination page={page} pageSize={PAGE_SIZE} totalItems={filteredJobs.length} onPageChange={setPage} />
+            <Pagination page={page} pageSize={PAGE_SIZE} totalItems={filteredTotal} onPageChange={setPage} />
           </>
         )}
       </div>

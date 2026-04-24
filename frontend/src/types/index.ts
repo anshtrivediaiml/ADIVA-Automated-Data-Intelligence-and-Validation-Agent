@@ -66,10 +66,13 @@ export interface ValidationSummary {
   error_count: number;
   warning_count: number;
   info_count: number;
+  truth_test_count?: number;
+  passed_truth_tests?: number;
   reason_codes: string[];
   review_reasons: string[];
   schema_supported: boolean;
   failed_truth_tests: number;
+  truth_test_failures?: string[];
   validation_time_seconds: number;
   document_type: string;
 }

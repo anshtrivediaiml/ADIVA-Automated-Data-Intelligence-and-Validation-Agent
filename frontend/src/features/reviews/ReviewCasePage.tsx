@@ -1,4 +1,4 @@
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AlertTriangle, CheckCircle, Loader2, ClipboardCheck, FileWarning, Sparkles } from 'lucide-react';
@@ -12,6 +12,8 @@ import type { ReviewField } from '@/types/models';
 export default function ReviewCasePage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
+  const returnTo = (location.state as { returnTo?: string } | null)?.returnTo ?? '/reviews';
   const qc = useQueryClient();
   const { toast } = useToast();
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
@@ -79,7 +81,7 @@ export default function ReviewCasePage() {
       qc.invalidateQueries({ queryKey: ['result'] });
       qc.invalidateQueries({ queryKey: ['jobs'] });
       toast('Review case resolved', 'success');
-      navigate('/reviews');
+      navigate(returnTo, { replace: true });
     },
     onError: () => toast('Failed to resolve case', 'error'),
   });
@@ -131,7 +133,7 @@ export default function ReviewCasePage() {
         <div className="card p-8 text-center">
           <AlertTriangle className="w-12 h-12 text-red-400 mx-auto mb-3" />
           <p className="text-gray-400 text-sm">Could not load review case.</p>
-          <Link to="/reviews" className="btn-primary mt-4 inline-block">Back to Queue</Link>
+          <Link to={returnTo} className="btn-primary mt-4 inline-block">Back to Queue</Link>
         </div>
       </div>
     );
@@ -141,7 +143,7 @@ export default function ReviewCasePage() {
     <div className="p-8 max-w-7xl mx-auto">
       {/* Breadcrumb */}
       <div className="flex items-center gap-2 text-sm text-gray-400 mb-6">
-        <Link to="/reviews" className="hover:text-white">Reviews</Link>
+        <Link to={returnTo} className="hover:text-white">Reviews</Link>
         <span>/</span>
         <span className="font-mono text-xs">{id?.slice(0, 8)}...</span>
       </div>

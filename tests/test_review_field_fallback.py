@@ -1,9 +1,13 @@
 from backend.review.service import (
     DEFAULT_DOCUMENT_REVIEW_FIELD,
+    _merge_grouped_proposal_value,
+    _resolve_review_item_for_proposal,
     _ensure_non_empty_review_field_items,
     _normalize_review_case_status_value,
     _triage_review_field_items_with_ai,
+    build_review_field_items_from_validation,
 )
+from backend.db import models
 
 
 def test_existing_review_field_items_are_preserved():
@@ -138,3 +142,81 @@ def test_ai_triage_can_deduplicate_repeated_indexed_review_items(monkeypatch):
     assert summary["applied"] is True
     assert [item["field_path"] for item in resolved] == ["opening_balance", "transactions"]
     assert resolved[0]["proposed_value"] == 45230.0
+
+
+def test_recovery_can_request_indexed_fields_without_collapsing():
+    items = build_review_field_items_from_validation(
+        document_type="bank_statement",
+        structured_data={
+            "transactions": [
+                {"balance": 82230.0},
+                {"balance": 78780.0},
+                {"balance": 76680.0},
+            ]
+        },
+        confidence_data={"overall_confidence": 0.44},
+        validation_summary={"decision": "low_confidence"},
+        validation_errors=[
+            {
+                "field": "transactions.0.balance",
+                "message": "Running balance mismatch.",
+                "expected": "100230.0",
+                "actual": "82230.0",
+            },
+            {
+                "field": "transactions.1.balance",
+                "message": "Running balance mismatch.",
+                "expected": "82230.0",
+                "actual": "78780.0",
+            },
+            {
+                "field": "transactions.2.balance",
+                "message": "Running balance mismatch.",
+                "expected": "78780.0",
+                "actual": "76680.0",
+            },
+        ],
+        collapse_repeated_groups=False,
+    )
+
+    indexed_paths = [
+        item["field_path"]
+        for item in items
+        if item["field_path"].startswith("transactions.")
+    ]
+
+    assert indexed_paths == [
+        "transactions.0.balance",
+        "transactions.1.balance",
+        "transactions.2.balance",
+    ]
+
+
+def test_grouped_review_item_can_receive_child_proposal_bundle():
+    parent_item = models.ReviewFieldItem(field_path="transactions")
+    exact_item = models.ReviewFieldItem(field_path="opening_balance")
+
+    resolved = _resolve_review_item_for_proposal(
+        {
+            "transactions": parent_item,
+            "opening_balance": exact_item,
+        },
+        "transactions.0.balance",
+    )
+
+    assert resolved is parent_item
+
+    merged = _merge_grouped_proposal_value(
+        None,
+        {
+            "field_path": "transactions.0.balance",
+            "proposed_value": 100230.0,
+            "evidence_text": "02-Feb-2024 SALARY CREDIT - FEB 2024 55,000.00 1,00,230.00",
+            "reason": "Running balance can be repaired from the row arithmetic.",
+            "confidence": 0.89,
+        },
+    )
+
+    assert merged["summary"]
+    assert merged["changes"][0]["field_path"] == "transactions.0.balance"
+    assert merged["changes"][0]["proposed_value"] == 100230.0

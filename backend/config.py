@@ -116,6 +116,12 @@ READINESS_CACHE_TTL_SECONDS = float(os.getenv("READINESS_CACHE_TTL_SECONDS", "3"
 METRICS_SNAPSHOT_MIN_INTERVAL_SECONDS = float(
     os.getenv("METRICS_SNAPSHOT_MIN_INTERVAL_SECONDS", "2")
 )
+DASHBOARD_SUMMARY_CACHE_TTL_SECONDS = float(
+    os.getenv("DASHBOARD_SUMMARY_CACHE_TTL_SECONDS", "5")
+)
+LIST_SUMMARY_CACHE_TTL_SECONDS = float(
+    os.getenv("LIST_SUMMARY_CACHE_TTL_SECONDS", "5")
+)
 CORS_ORIGINS = _get_csv_env(
     "CORS_ORIGINS",
     "http://localhost:3000,http://localhost:8000,http://127.0.0.1:3000"
@@ -132,11 +138,11 @@ CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", CELERY_BROKER_URL)
 # ========================
 
 MISTRAL_MODEL = os.getenv("MISTRAL_MODEL", "mistral-large-latest")
-MISTRAL_TEMPERATURE = float(os.getenv("MISTRAL_TEMPERATURE", "0.7"))
-MISTRAL_MAX_TOKENS = int(os.getenv("MISTRAL_MAX_TOKENS", "1000"))
-MISTRAL_TIMEOUT_MS = int(os.getenv("MISTRAL_TIMEOUT_MS", "12000"))
+MISTRAL_TEMPERATURE = float(os.getenv("MISTRAL_TEMPERATURE", "0.1"))   # low = deterministic structured output
+MISTRAL_MAX_TOKENS = int(os.getenv("MISTRAL_MAX_TOKENS", "4000"))       # raised: complex invoices need ~2500 tokens
+MISTRAL_TIMEOUT_MS = int(os.getenv("MISTRAL_TIMEOUT_MS", "30000"))      # raised to allow longer responses
 MISTRAL_MAX_RETRIES = int(os.getenv("MISTRAL_MAX_RETRIES", "2"))
-MISTRAL_RETRY_BACKOFF_MS = int(os.getenv("MISTRAL_RETRY_BACKOFF_MS", "800"))
+MISTRAL_RETRY_BACKOFF_MS = int(os.getenv("MISTRAL_RETRY_BACKOFF_MS", "8000"))  # raised — rate-limit floor is 15s
 
 # Extraction review gates
 REVIEW_MIN_QUALITY_SCORE = float(os.getenv("REVIEW_MIN_QUALITY_SCORE", "0.65"))
@@ -157,21 +163,24 @@ VALIDATION_PASS_MIN_CONFIDENCE = float(
 VALIDATION_LOW_CONFIDENCE_SCORE = float(
     os.getenv("VALIDATION_LOW_CONFIDENCE_SCORE", "0.55")
 )
-VALIDATION_ENABLE_TRUTH_TESTS = _get_bool_env("VALIDATION_ENABLE_TRUTH_TESTS", False)
+VALIDATION_ENABLE_TRUTH_TESTS = _get_bool_env("VALIDATION_ENABLE_TRUTH_TESTS", True)
 VALIDATION_TRUTH_TEST_WEIGHT = float(
     os.getenv("VALIDATION_TRUTH_TEST_WEIGHT", "0.20")
 )
 ENABLE_AI_RECOVERY = _get_bool_env("ENABLE_AI_RECOVERY", True)
 AI_RECOVERY_SHADOW_MODE = _get_bool_env("AI_RECOVERY_SHADOW_MODE", False)
-AI_RECOVERY_MAX_ATTEMPTS = int(os.getenv("AI_RECOVERY_MAX_ATTEMPTS", "2"))
-AI_RECOVERY_MIN_IMPROVEMENT = float(os.getenv("AI_RECOVERY_MIN_IMPROVEMENT", "0.05"))
+AI_RECOVERY_MAX_ATTEMPTS = int(os.getenv("AI_RECOVERY_MAX_ATTEMPTS", "3"))        # raised from 2
+AI_RECOVERY_MIN_IMPROVEMENT = float(os.getenv("AI_RECOVERY_MIN_IMPROVEMENT", "0.03"))  # lowered threshold
 AI_RECOVERY_MIN_ACCEPT_CONFIDENCE = float(
     os.getenv("AI_RECOVERY_MIN_ACCEPT_CONFIDENCE", str(VALIDATION_PASS_MIN_CONFIDENCE))
 )
-AI_RECOVERY_MAX_FIELDS_PER_ATTEMPT = int(os.getenv("AI_RECOVERY_MAX_FIELDS_PER_ATTEMPT", "5"))
+AI_RECOVERY_MAX_FIELDS_PER_ATTEMPT = int(os.getenv("AI_RECOVERY_MAX_FIELDS_PER_ATTEMPT", "8"))  # raised from 5
 AI_RECOVERY_IN_SCOPE_TYPES = {
     item.strip().lower()
-    for item in os.getenv("AI_RECOVERY_IN_SCOPE_TYPES", "invoice,bank_statement").split(",")
+    for item in os.getenv(
+        "AI_RECOVERY_IN_SCOPE_TYPES",
+        "invoice,bank_statement,purchase_order,retail_receipt,payslip,balance_sheet,marksheet,utility_bill",
+    ).split(",")
     if item.strip()
 }
 

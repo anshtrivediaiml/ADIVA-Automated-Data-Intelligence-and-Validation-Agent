@@ -1,46 +1,113 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useState, useCallback, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { ClipboardList, ArrowRight, Filter, Search, Clock3, Sparkles, CheckCircle2 } from 'lucide-react';
 import { reviewsApi } from '@/lib/api/reviewsApi';
 import { Pagination } from '@/components/ui/Pagination';
-import { clampPage, formatDate, paginateItems } from '@/lib/utils';
+import { formatDate } from '@/lib/utils';
 
 const PAGE_SIZE = 15;
 
 export default function ReviewQueuePage() {
-  const [page, setPage] = useState(1);
-  const [statusFilter, setStatusFilter] = useState<'all' | 'open' | 'in_progress' | 'resolved'>('all');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
+  const returnTo = `${location.pathname}${location.search}`;
+
+  // ── Derive page & filter directly from URL (no useState lag) ──────────────
+  const page = (() => {
+    const raw = Number.parseInt(searchParams.get('page') ?? '1', 10);
+    return Number.isFinite(raw) && raw > 0 ? raw : 1;
+  })();
+  const statusFilter = (() => {
+    const raw = searchParams.get('status');
+    const allowed = ['all', 'open', 'in_progress', 'resolved'];
+    return (allowed.includes(raw ?? '') ? raw : 'all') as 'all' | 'open' | 'in_progress' | 'resolved';
+  })();
+
+  // Debounced search — API call fires 300ms after user stops typing
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const apiStatusFilter = statusFilter === 'all' ? undefined : statusFilter;
-  const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['reviews', 'queue', apiStatusFilter ?? 'all'],
-    queryFn: () => reviewsApi.list({ limit: 100, status: apiStatusFilter }),
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchTerm.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
+  // ── URL-update helpers ────────────────────────────────────────────────────
+  const setPage = useCallback((p: number) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (p > 1) next.set('page', String(p)); else next.delete('page');
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
+  const setStatusFilter = useCallback((filter: typeof statusFilter | ((prev: typeof statusFilter) => typeof statusFilter)) => {
+    setSearchParams(prev => {
+      const cur = (() => {
+        const raw = prev.get('status');
+        const allowed = ['all', 'open', 'in_progress', 'resolved'];
+        return (allowed.includes(raw ?? '') ? raw : 'all') as typeof statusFilter;
+      })();
+      const resolved = typeof filter === 'function' ? filter(cur) : filter;
+      const next = new URLSearchParams(prev);
+      if (resolved === 'all') next.delete('status'); else next.set('status', resolved);
+      next.delete('page');
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
+  // Reset to page 1 when debounced search changes
+  useEffect(() => {
+    setPage(1);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedSearch]);
+
+  const {
+    data: summary,
+    isFetching: isSummaryFetching,
+    refetch: refetchSummary,
+  } = useQuery({
+    queryKey: ['reviews', 'summary'],
+    queryFn: () => reviewsApi.summary(),
+    staleTime: 15_000,
+    refetchOnWindowFocus: false,
+  });
+  const { data, isLoading, isError, refetch, isFetching } = useQuery({
+    // API handles search and pagination
+    queryKey: ['reviews', 'queue', page, apiStatusFilter ?? 'all', debouncedSearch],
+    queryFn: () =>
+      reviewsApi.list({
+        page,
+        limit: PAGE_SIZE,
+        status: apiStatusFilter,
+        search: debouncedSearch || undefined,
+      }),
     staleTime: 15_000,
     refetchOnWindowFocus: false,
   });
 
   const reviews = data?.reviews ?? [];
-  const filteredReviews = useMemo(() => {
-    return reviews.filter((review) => {
-      const matchesStatus = statusFilter === 'all' ? true : review.status === statusFilter;
-      const needle = searchTerm.trim().toLowerCase();
-      const haystack = [review.file_name ?? '', review.doc_type ?? '', review.id, review.job_id]
-        .join(' ')
-        .toLowerCase();
-      const matchesSearch = !needle || haystack.includes(needle);
-      return matchesStatus && matchesSearch;
-    });
-  }, [reviews, searchTerm, statusFilter]);
-  const paginatedReviews = paginateItems(filteredReviews, page, PAGE_SIZE);
-  const openCount = reviews.filter((review) => review.status === 'open').length;
-  const inProgressCount = reviews.filter((review) => review.status === 'in_progress').length;
-  const resolvedCount = reviews.filter((review) => review.status === 'resolved').length;
-  const totalOpenFields = reviews.reduce((sum, review) => sum + (review.open_field_count ?? 0), 0);
+  const filteredTotal = data?.total ?? 0;
+  const totalReviews = summary?.total_reviews ?? filteredTotal;
+  const openCount = summary?.open_count ?? 0;
+  const inProgressCount = summary?.in_progress_count ?? 0;
+  const resolvedCount = summary?.resolved_count ?? 0;
+  const totalOpenFields = summary?.total_open_fields ?? 0;
+  const showTableLoading = isLoading && totalReviews > 0;
 
+  // Clamp page to valid range
   useEffect(() => {
-    setPage((currentPage) => clampPage(currentPage, filteredReviews.length, PAGE_SIZE));
-  }, [filteredReviews.length]);
+    if (!data) return;
+    const totalPages = Math.max(1, Math.ceil(filteredTotal / PAGE_SIZE));
+    if (page > totalPages) setPage(totalPages);
+  }, [data, filteredTotal, page, setPage]);
+
+  const refreshPageData = () => {
+    void refetchSummary();
+    void refetch();
+  };
 
   return (
     <div className="p-8">
@@ -88,23 +155,54 @@ export default function ReviewQueuePage() {
 
       <div className="card">
         {isLoading ? (
-          <div className="p-6 space-y-3">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="h-14 bg-[#0F0F1A] rounded-lg animate-pulse" />
-            ))}
-          </div>
+          showTableLoading ? (
+            <>
+              <div className="p-6 border-b border-[#2A2A3E] bg-[#0F0F1A]/35">
+                <div className="text-sm text-gray-400">Loading page {page}...</div>
+              </div>
+              <div className="p-6 space-y-3">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <div key={i} className="h-14 bg-[#0F0F1A] rounded-lg animate-pulse" />
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="p-6 space-y-3">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="h-14 bg-[#0F0F1A] rounded-lg animate-pulse" />
+              ))}
+            </div>
+          )
         ) : isError ? (
           <div className="py-16 text-center text-gray-500 text-sm">
             <p className="mb-3">Failed to load review queue.</p>
-            <button onClick={() => refetch()} className="btn-secondary text-sm">
+            <button onClick={refreshPageData} className="btn-secondary text-sm">
               Retry
             </button>
           </div>
         ) : reviews.length === 0 ? (
           <div className="py-16 text-center flex flex-col items-center gap-3 text-gray-500">
-            <ClipboardList className="w-12 h-12 opacity-30" />
-            <p className="text-sm font-medium">No pending reviews</p>
-            <p className="text-xs">All documents have been reviewed or are processing.</p>
+            {(totalReviews === 0 ? <ClipboardList className="w-12 h-12 opacity-30" /> : <Search className="w-12 h-12 opacity-30" />)}
+            <p className="text-sm font-medium">
+              {totalReviews === 0 ? 'No pending reviews' : 'No review cases match the current filters'}
+            </p>
+            <p className="text-xs">
+              {totalReviews === 0
+                ? 'All documents have been reviewed or are processing.'
+                : 'Try adjusting the search term or queue filter.'}
+            </p>
+            {totalReviews !== 0 ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchTerm('');
+                  setStatusFilter('all');
+                }}
+                className="btn-secondary text-sm mt-1"
+              >
+                Clear Filters
+              </button>
+            ) : null}
           </div>
         ) : (
           <>
@@ -146,6 +244,12 @@ export default function ReviewQueuePage() {
                     </button>
                   ))}
                 </div>
+                <div className="flex items-center gap-3 text-xs text-gray-500">
+                  <span>{filteredTotal} matching cases</span>
+                  {isFetching || isSummaryFetching ? (
+                    <span className="text-[#A5B4FC]">Syncing...</span>
+                  ) : null}
+                </div>
               </div>
             </div>
 
@@ -159,7 +263,7 @@ export default function ReviewQueuePage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#2A2A3E]">
-                  {paginatedReviews.map((r) => {
+                  {reviews.map((r) => {
                     const openCount = r.open_field_count ?? r.fields?.filter((f) => f.status === 'open').length ?? 0;
                     return (
                       <tr key={r.id} className="hover:bg-[#1F1F2E]/50 transition-colors">
@@ -187,6 +291,7 @@ export default function ReviewQueuePage() {
                         <td className="px-6 py-4 text-sm">
                           <Link
                             to={`/reviews/${r.id}`}
+                            state={{ returnTo }}
                             className="flex items-center gap-1.5 text-[#4F46E5] hover:text-[#4338CA] font-medium text-sm transition-colors"
                           >
                             Review <ArrowRight className="w-3.5 h-3.5" />
@@ -199,13 +304,7 @@ export default function ReviewQueuePage() {
               </table>
             </div>
 
-            {filteredReviews.length === 0 && (
-              <div className="px-6 py-10 text-center text-gray-500 text-sm border-t border-[#2A2A3E]">
-                No review cases match the current filters.
-              </div>
-            )}
-
-            <Pagination page={page} pageSize={PAGE_SIZE} totalItems={filteredReviews.length} onPageChange={setPage} />
+            <Pagination page={page} pageSize={PAGE_SIZE} totalItems={filteredTotal} onPageChange={setPage} />
           </>
         )}
       </div>

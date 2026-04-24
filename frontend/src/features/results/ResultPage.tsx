@@ -1,4 +1,4 @@
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
 import { Download, AlertTriangle, CheckCircle2, XCircle, Info, FileWarning, ClipboardCheck, Sparkles, Loader2 } from 'lucide-react';
@@ -14,7 +14,9 @@ type Tab = 'data' | 'validation' | 'recovery' | 'downloads';
 
 export default function ResultPage() {
   const { id } = useParams<{ id: string }>();
+  const location = useLocation();
   const [activeTab, setActiveTab] = useState<Tab>('data');
+  const returnTo = (location.state as { returnTo?: string } | null)?.returnTo ?? '/jobs';
 
   const { data: result, isLoading, isError, refetch } = useQuery<ExtractionResult>({
     queryKey: ['result', 'detail', id],
@@ -60,7 +62,7 @@ export default function ResultPage() {
             <button onClick={() => refetch()} className="btn-secondary">
               Retry
             </button>
-            <Link to="/jobs" className="btn-primary inline-block">Back to Jobs</Link>
+            <Link to={returnTo} className="btn-primary inline-block">Back to Jobs</Link>
           </div>
         </div>
       </div>
@@ -91,17 +93,17 @@ export default function ResultPage() {
     <div className="p-8">
       {/* Breadcrumb */}
       <div className="flex items-center gap-2 text-sm text-gray-400 mb-6">
-        <Link to="/jobs" className="hover:text-white">Jobs</Link>
+        <Link to={returnTo} className="hover:text-white">Jobs</Link>
         <span>/</span>
-        <Link to={`/jobs/${id}`} className="hover:text-white font-mono text-xs">{id?.slice(0, 8)}...</Link>
+        <Link to={`/jobs/${id}`} state={{ returnTo }} className="hover:text-white font-mono text-xs">{id?.slice(0, 8)}...</Link>
         <span>/</span>
         <span className="text-white">Result</span>
       </div>
 
       <div className="card p-6 mb-6">
-        <div className="flex items-start justify-between mb-4">
-          <div>
-            <h2 className="text-xl font-semibold text-white mb-1">{result.file}</h2>
+        <div className="flex flex-wrap items-start justify-between gap-4 mb-4">
+          <div className="min-w-0 flex-1">
+            <h2 className="text-xl font-semibold text-white mb-1 break-all">{result.file}</h2>
             <div className="flex gap-4 text-sm text-gray-400 flex-wrap">
               <span>Doc Type: <span className="text-white">{result.doc_type ?? '-'}</span></span>
               <span>Language: <span className="text-white">{result.lang ?? '-'}</span></span>
@@ -110,7 +112,7 @@ export default function ResultPage() {
               <span>Time: <span className="text-white">{formatDuration(result.processing_time_seconds)}</span></span>
             </div>
           </div>
-          <StatusPill status={result.status} />
+          <StatusPill status={result.status} className="max-w-full shrink-0 self-start" />
         </div>
 
         <ValidationBanner decision={validationDecision} />
@@ -242,7 +244,7 @@ function ValidationTab({
   }
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-[#0F0F1A] rounded-lg p-4 text-center">
           <div className="text-2xl font-semibold text-white mb-1">{(vs.confidence_score * 100).toFixed(1)}%</div>
           <div className="text-xs text-gray-400">Confidence Score</div>
@@ -255,6 +257,10 @@ function ValidationTab({
           <div className="text-2xl font-semibold text-amber-400 mb-1">{vs.warning_count}</div>
           <div className="text-xs text-gray-400">Warnings</div>
         </div>
+        <div className="bg-[#0F0F1A] rounded-lg p-4 text-center">
+          <div className="text-2xl font-semibold text-sky-300 mb-1">{vs.failed_truth_tests}</div>
+          <div className="text-xs text-gray-400">Failed AI Truth Checks</div>
+        </div>
       </div>
 
       {vs.review_reasons.length > 0 && (
@@ -263,6 +269,19 @@ function ValidationTab({
           <div className="flex gap-2 flex-wrap">
             {vs.review_reasons.map((r) => (
               <span key={r} className="px-2.5 py-1 rounded-full text-xs bg-amber-900/30 text-amber-300">{r}</span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {(vs.truth_test_failures?.length ?? 0) > 0 && (
+        <div>
+          <h4 className="text-sm font-medium text-gray-300 mb-3">AI Truth Checks</h4>
+          <div className="space-y-2">
+            {vs.truth_test_failures?.map((failure) => (
+              <div key={failure} className="rounded-lg border border-sky-900/30 bg-sky-950/20 px-3 py-2 text-sm text-sky-100">
+                {failure}
+              </div>
             ))}
           </div>
         </div>

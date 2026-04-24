@@ -209,6 +209,63 @@ class DocumentExtractor:
             'quality_issues': quality.get('issues', []),
         }
 
+    def _build_structured_extraction_context(
+        self,
+        *,
+        raw_text: str,
+        tables: list[dict[str, Any]],
+        metadata: Optional[Dict[str, Any]],
+        document_type: str,
+    ) -> Dict[str, Any]:
+        cleaned_lines: list[str] = []
+        numeric_dense_lines: list[str] = []
+
+        for raw_line in (raw_text or "").splitlines():
+            line = " ".join(str(raw_line or "").split())
+            if not line:
+                continue
+            if line.startswith("--- Page ") or line.startswith("[Language:"):
+                continue
+            cleaned_lines.append(line)
+            if len(re.findall(r"\d", line)) >= 3:
+                numeric_dense_lines.append(line)
+
+        table_blocks: list[dict[str, Any]] = []
+        for table in tables[:4]:
+            if not isinstance(table, dict):
+                continue
+            table_blocks.append(
+                {
+                    "page": table.get("page"),
+                    "source": table.get("source"),
+                    "headers": [str(header) for header in (table.get("headers") or [])[:8]],
+                    "rows": [
+                        [str(cell) for cell in row[:8]]
+                        for row in (table.get("rows") or [])[:10]
+                        if isinstance(row, list)
+                    ],
+                }
+            )
+
+        signals = {
+            "document_type": document_type,
+            "line_count": len(cleaned_lines),
+            "numeric_dense_line_count": len(numeric_dense_lines),
+            "table_count": len(table_blocks),
+        }
+        if isinstance(metadata, dict):
+            ocr_summary = metadata.get("ocr_run_summary")
+            if isinstance(ocr_summary, dict):
+                signals["ocr_average_page_confidence"] = ocr_summary.get("average_page_confidence")
+                signals["ocr_engine_usage"] = ocr_summary.get("engine_usage")
+
+        return {
+            "signals": signals,
+            "line_blocks": cleaned_lines[:80],
+            "numeric_dense_lines": numeric_dense_lines[:40],
+            "table_blocks": table_blocks,
+        }
+
 
     
     def extract(
@@ -354,6 +411,7 @@ class DocumentExtractor:
             # Step 7: Structured Data Extraction (if document type has a schema)
             structured_data = None
             extraction_confidence = None
+            schema_coverage_confidence = None
             _notify_stage("extracting", "structured_extraction")
 
             # Dynamically use the schema registry — any type with a registered schema
@@ -372,12 +430,25 @@ class DocumentExtractor:
             if self.ai_agent and classification and has_schema and llm_available_for_extraction:
                 extraction_log.append(f"Step 7: Extracting structured data for {doc_type}")
                 try:
-                    structured_data = self.ai_agent.extract_structured_data(raw_text, doc_type)
-                    extraction_confidence = self.ai_agent.calculate_extraction_confidence(
+                    extraction_context = self._build_structured_extraction_context(
+                        raw_text=raw_text,
+                        tables=tables,
+                        metadata=metadata,
+                        document_type=doc_type,
+                    )
+                    structured_data = self.ai_agent.extract_structured_data(
+                        raw_text,
+                        doc_type,
+                        extraction_context=extraction_context,
+                    )
+                    schema_coverage_confidence = self.ai_agent.calculate_extraction_confidence(
                         structured_data,
                         doc_type
                     )
-                    extraction_log.append(f"Structured extraction complete (confidence: {extraction_confidence})")
+                    extraction_confidence = schema_coverage_confidence
+                    extraction_log.append(
+                        f"Structured extraction complete (schema coverage: {schema_coverage_confidence})"
+                    )
                 except Exception as e:
                     logger.error(f"Structured extraction failed: {e}")
                     extraction_log.append(f"Structured extraction failed: {str(e)}")
@@ -428,6 +499,8 @@ class DocumentExtractor:
             if structured_data:
                 result['structured_data'] = structured_data
                 result['extraction_confidence'] = extraction_confidence
+                if schema_coverage_confidence is not None:
+                    result['schema_coverage_confidence'] = schema_coverage_confidence
                 
                 # Add comprehensive confidence scoring
                 if self.confidence_scorer and classification:
@@ -441,8 +514,22 @@ class DocumentExtractor:
                         extraction_metadata
                     )
                     
+                    result['schema_coverage_confidence'] = schema_coverage_confidence
+                    result['extraction_confidence'] = comprehensive_confidence['overall_confidence']
                     result['comprehensive_confidence'] = comprehensive_confidence
-                    logger.info(f"Comprehensive confidence: {comprehensive_confidence['overall_confidence']} ({comprehensive_confidence['grade']})")
+                    extraction_confidence = comprehensive_confidence['overall_confidence']
+                    logger.info(
+                        f"Comprehensive confidence: {comprehensive_confidence['overall_confidence']} "
+                        f"({comprehensive_confidence['grade']})"
+                    )
+            self._log_extraction_summary(
+                file_path=file_path,
+                extractor_name=extractor.name,
+                detected_language=detected_lang_display,
+                table_count=len(tables),
+                classification=classification,
+                extraction_confidence=extraction_confidence,
+            )
             _mark("confidence_scoring")
 
             review_summary = self._build_review_summary(
@@ -572,4 +659,22 @@ class DocumentExtractor:
         
         logger.info(f"Batch extraction complete: {len(results)} processed")
         return results
+
+    def _log_extraction_summary(
+        self,
+        *,
+        file_path: Path,
+        extractor_name: str,
+        detected_language: str,
+        table_count: int,
+        classification: Optional[dict[str, Any]],
+        extraction_confidence: Optional[float],
+    ) -> None:
+        doc_type = str((classification or {}).get("document_type") or "unknown")
+        class_conf = (classification or {}).get("confidence")
+        logger.info(
+            f"Extraction summary | file={file_path.name} extractor={extractor_name} "
+            f"doc_type={doc_type} class_conf={class_conf} lang={detected_language} "
+            f"tables={table_count} extraction_conf={extraction_confidence}"
+        )
 

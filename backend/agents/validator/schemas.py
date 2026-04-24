@@ -67,6 +67,9 @@ class TruthTestResult(BaseModel):
     test_name: str = Field(
         ..., description="Short name of the truth test"
     )
+    field: Optional[str] = Field(
+        None, description="Primary dot-separated field path most relevant to this truth test"
+    )
     assertion: str = Field(
         ..., description="Natural-language assertion tested"
     )

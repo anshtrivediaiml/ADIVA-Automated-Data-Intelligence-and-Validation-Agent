@@ -66,6 +66,7 @@ def summarize_validation_report(report: AuditReport, decision: ValidationDecisio
     warning_count = sum(1 for item in report.error_log if item.severity == Severity.WARNING)
     info_count = sum(1 for item in report.error_log if item.severity == Severity.INFO)
     failed_truth_tests = sum(1 for item in report.truth_tests if not item.passed)
+    passed_truth_tests = sum(1 for item in report.truth_tests if item.passed)
 
     reason_codes = {
         f"{item.pillar.value}_{item.severity.value}"
@@ -82,7 +83,10 @@ def summarize_validation_report(report: AuditReport, decision: ValidationDecisio
         "error_count": error_count,
         "warning_count": warning_count,
         "info_count": info_count,
+        "truth_test_count": len(report.truth_tests),
+        "passed_truth_tests": passed_truth_tests,
         "failed_truth_tests": failed_truth_tests,
+        "truth_test_failures": _summarize_truth_test_failures(report),
         "normalisation_change_count": len(report.normalisation_changes),
         "reason_codes": sorted(reason_codes),
         "review_reasons": review_reasons,
@@ -113,13 +117,31 @@ def _build_review_reasons(report: AuditReport) -> list[str]:
             compact = _build_indexed_reason_summary(indexed_signature)
         else:
             compact = _compact_review_reason(item.message)
-        if not compact or compact in seen:
+        signature = _reason_signature(compact)
+        if not compact or signature in seen:
             continue
         reasons.append(compact)
-        seen.add(compact)
+        seen.add(signature)
         if len(reasons) >= 8:
             break
     return reasons
+
+
+def _summarize_truth_test_failures(report: AuditReport) -> list[str]:
+    failures: list[str] = []
+    seen: set[str] = set()
+    for item in report.truth_tests:
+        if item.passed:
+            continue
+        compact = _compact_review_reason(item.detail or item.assertion)
+        signature = _reason_signature(compact)
+        if not compact or signature in seen:
+            continue
+        failures.append(compact)
+        seen.add(signature)
+        if len(failures) >= 5:
+            break
+    return failures
 
 
 def _indexed_reason_signature(item) -> tuple[str, str, str] | None:
@@ -161,6 +183,14 @@ def _compact_review_reason(message: str) -> str:
     if len(compact) > 180:
         compact = compact[:179].rstrip() + "…"
     return compact
+
+
+def _reason_signature(message: str) -> str:
+    compact = re.sub(r"^ai truth check failed:\s*", "", str(message or "").strip().lower())
+    compact = re.sub(r"^truth test failed:\s*", "", compact)
+    compact = re.sub(r"[^a-z0-9]+", " ", compact)
+    tokens = [token for token in compact.split() if token not in {"the", "a", "an", "should", "be", "is", "are", "to", "of", "and"}]
+    return " ".join(tokens[:12])
 
 
 def persist_validation_report(

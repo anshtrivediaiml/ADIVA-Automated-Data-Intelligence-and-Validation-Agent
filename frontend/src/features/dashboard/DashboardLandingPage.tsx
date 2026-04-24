@@ -17,64 +17,44 @@ import {
   XCircle,
 } from 'lucide-react';
 import { StatusPill } from '@/components/ui/StatusPill';
-import { healthApi } from '@/lib/api/healthApi';
-import { jobsApi } from '@/lib/api/jobsApi';
-import { reviewsApi } from '@/lib/api/reviewsApi';
+import { dashboardApi } from '@/lib/api/dashboardApi';
 import { formatDate } from '@/lib/utils';
-import type { Job, ReviewCase } from '@/types/models';
+import type { DashboardRecentJob, DashboardReviewSpotlight } from '@/types/models';
 
 export default function DashboardLandingPage() {
   const {
-    data: jobsData,
-    isLoading: jobsLoading,
-    isError: jobsError,
-    refetch: refetchJobs,
+    data: summary,
+    isLoading: summaryLoading,
+    isError: summaryError,
+    refetch: refetchSummary,
   } = useQuery({
-    queryKey: ['jobs', 'dashboard'],
-    queryFn: () => jobsApi.list({ limit: 200 }),
-    staleTime: 15_000,
+    queryKey: ['dashboard-summary'],
+    queryFn: () => dashboardApi.summary(),
+    staleTime: 10_000,
     refetchOnWindowFocus: false,
   });
 
-  const { data: health } = useQuery({
-    queryKey: ['health', 'dashboard'],
-    queryFn: () => healthApi.health(),
-    staleTime: 30_000,
-  });
-
-  const {
-    data: reviewsData,
-    isLoading: reviewsLoading,
-    isError: reviewsError,
-    refetch: refetchReviews,
-  } = useQuery({
-    queryKey: ['reviews', 'dashboard'],
-    queryFn: () => reviewsApi.list({ limit: 25 }),
-    staleTime: 15_000,
-    refetchOnWindowFocus: false,
-  });
-
-  const jobs: Job[] = jobsData ?? [];
-  const reviews: ReviewCase[] = reviewsData?.reviews ?? [];
-
-  const today = new Date().toISOString().slice(0, 10);
-  const jobsToday = jobs.filter((job) => (job.submitted_at ?? '').startsWith(today)).length;
-  const completedToday = jobs.filter(
-    (job) => job.status === 'completed' && (job.finished_at ?? '').startsWith(today),
-  ).length;
-  const completedCount = jobs.filter((job) => job.status === 'completed').length;
-  const successRate = jobs.length > 0 ? `${((completedCount / jobs.length) * 100).toFixed(1)}%` : '-';
-  const needsReviewCount = jobs.filter((job) => job.status === 'needs_review').length;
-  const lowConfidenceCount = jobs.filter((job) => job.status === 'low_confidence').length;
-  const queuedCount = jobs.filter((job) => job.status === 'queued').length;
-  const processingCount = jobs.filter((job) => job.status === 'processing').length;
-  const failedCount = jobs.filter((job) => job.status === 'failed').length;
-  const activeCount = queuedCount + processingCount;
-  const openReviews = reviews.filter((review) => review.status !== 'resolved');
-  const recentJobs = jobs.slice(0, 5);
-  const commonReviewDocType = getTopDocType(openReviews);
-  const totalOpenFields = openReviews.reduce((sum, review) => sum + (review.open_field_count ?? 0), 0);
-  const healthStatus = health?.status ?? 'unknown';
+  const jobsLoading = summaryLoading;
+  const jobsError = summaryError;
+  const reviewsLoading = summaryLoading;
+  const reviewsError = summaryError;
+  const totalJobs = summary?.total_jobs ?? 0;
+  const jobsToday = summary?.jobs_today ?? 0;
+  const completedToday = summary?.completed_today ?? 0;
+  const completedCount = summary?.completed_count ?? 0;
+  const successRate = summary?.success_rate != null ? `${summary.success_rate.toFixed(1)}%` : '-';
+  const needsReviewCount = summary?.needs_review_count ?? 0;
+  const lowConfidenceCount = summary?.low_confidence_count ?? 0;
+  const queuedCount = summary?.queued_count ?? 0;
+  const processingCount = summary?.processing_count ?? 0;
+  const failedCount = summary?.failed_count ?? 0;
+  const activeCount = summary?.active_count ?? 0;
+  const openReviewCount = summary?.open_review_cases ?? 0;
+  const recentJobs: DashboardRecentJob[] = summary?.recent_jobs ?? [];
+  const commonReviewDocType = summary?.common_review_doc_type ?? null;
+  const totalOpenFields = summary?.total_open_review_fields ?? 0;
+  const healthStatus = summary?.health_status ?? 'unknown';
+  const reviewSpotlight: DashboardReviewSpotlight[] = summary?.review_spotlight ?? [];
 
   return (
     <div className="p-8">
@@ -94,8 +74,7 @@ export default function DashboardLandingPage() {
 
         <button
           onClick={() => {
-            refetchJobs();
-            refetchReviews();
+            refetchSummary();
           }}
           className="btn-ghost flex shrink-0 items-center gap-2"
           title="Refresh dashboard"
@@ -126,7 +105,7 @@ export default function DashboardLandingPage() {
               <div className="flex flex-wrap gap-2">
                 <HeroBadge icon={<Clock3 className="h-4 w-4" />} label="Queued" value={queuedCount} tone="slate" />
                 <HeroBadge icon={<Workflow className="h-4 w-4" />} label="Processing" value={processingCount} tone="blue" />
-                <HeroBadge icon={<ClipboardList className="h-4 w-4" />} label="Open Reviews" value={openReviews.length} tone="amber" />
+                <HeroBadge icon={<ClipboardList className="h-4 w-4" />} label="Open Reviews" value={openReviewCount} tone="amber" />
                 <HeroBadge
                   icon={<ShieldCheck className="h-4 w-4" />}
                   label="System"
@@ -154,7 +133,7 @@ export default function DashboardLandingPage() {
               <FocusCard
                 title="Success Rate"
                 value={successRate}
-                description={`${completedCount} of ${jobs.length || 0} jobs completed`}
+                description={`${completedCount} of ${totalJobs} jobs completed`}
                 tone="green"
                 icon={<CheckCircle2 className="h-4 w-4" />}
               />
@@ -204,7 +183,7 @@ export default function DashboardLandingPage() {
           {jobsLoading ? (
             <MetricGridSkeleton compact />
           ) : jobsError ? (
-            <InlineError message="Failed to load dashboard signals." onAction={() => refetchJobs()} compact />
+            <InlineError message="Failed to load dashboard signals." onAction={() => refetchSummary()} compact />
           ) : (
             <div className="space-y-4">
               <SignalRow
@@ -221,13 +200,13 @@ export default function DashboardLandingPage() {
               />
               <SignalRow
                 label="Human review"
-                value={`${openReviews.length} open cases`}
+                value={`${openReviewCount} open cases`}
                 subtext={
                   commonReviewDocType
                     ? `Most frequent document type: ${commonReviewDocType}`
                     : 'No pending review load'
                 }
-                tone={openReviews.length > 0 ? 'amber' : 'green'}
+                tone={openReviewCount > 0 ? 'amber' : 'green'}
               />
               <SignalRow
                 label="Failures"
@@ -257,7 +236,7 @@ export default function DashboardLandingPage() {
             <div>
               <h3 className="text-lg font-semibold text-white">Pipeline Lanes</h3>
               <p className="mt-1 text-sm text-gray-400">
-                Proportion of {jobs.length} tracked jobs by status
+                Proportion of {totalJobs} tracked jobs by status
               </p>
             </div>
             <Link to="/jobs" className="text-sm text-[#818CF8] transition-colors hover:text-[#A5B4FC]">
@@ -268,49 +247,49 @@ export default function DashboardLandingPage() {
           {jobsLoading ? (
             <MetricGridSkeleton />
           ) : jobsError ? (
-            <InlineError message="Failed to load pipeline summary." onAction={() => refetchJobs()} />
+            <InlineError message="Failed to load pipeline summary." onAction={() => refetchSummary()} />
           ) : (
             <div className="grid grid-cols-[1.2fr_0.8fr] gap-5">
               <div className="space-y-4">
                 <WorkflowLane
                   label="Queued intake"
                   value={queuedCount}
-                  max={Math.max(jobs.length, 1)}
+                  max={Math.max(totalJobs, 1)}
                   tone="slate"
                   caption="Waiting to enter the pipeline"
                 />
                 <WorkflowLane
                   label="In processing"
                   value={processingCount}
-                  max={Math.max(jobs.length, 1)}
+                  max={Math.max(totalJobs, 1)}
                   tone="blue"
                   caption="Currently in OCR, extraction, or validation"
                 />
                 <WorkflowLane
                   label="Completed"
                   value={completedCount}
-                  max={Math.max(jobs.length, 1)}
+                  max={Math.max(totalJobs, 1)}
                   tone="green"
                   caption="Finished successfully — results are ready"
                 />
                 <WorkflowLane
                   label="Needs review"
                   value={needsReviewCount}
-                  max={Math.max(jobs.length, 1)}
+                  max={Math.max(totalJobs, 1)}
                   tone="amber"
                   caption="Requires human confirmation before trust increases"
                 />
                 <WorkflowLane
                   label="Low confidence"
                   value={lowConfidenceCount}
-                  max={Math.max(jobs.length, 1)}
+                  max={Math.max(totalJobs, 1)}
                   tone="orange"
                   caption="Useful result available, but confidence remains weak"
                 />
                 <WorkflowLane
                   label="Failed"
                   value={failedCount}
-                  max={Math.max(jobs.length, 1)}
+                  max={Math.max(totalJobs, 1)}
                   tone="red"
                   caption="Execution terminated before a usable result"
                 />
@@ -323,7 +302,7 @@ export default function DashboardLandingPage() {
                 <div className="space-y-4">
                   <MiniMetric label="Completed" value={completedCount} tone="green" />
                   <MiniMetric label="Active" value={activeCount} tone="blue" />
-                  <MiniMetric label="Review queue" value={openReviews.length} tone="amber" />
+                  <MiniMetric label="Review queue" value={openReviewCount} tone="amber" />
                 </div>
               </div>
             </div>
@@ -342,7 +321,7 @@ export default function DashboardLandingPage() {
             {jobsLoading ? (
               <ActivitySkeleton />
             ) : jobsError ? (
-              <InlineError message="Failed to load recent activity." onAction={() => refetchJobs()} />
+              <InlineError message="Failed to load recent activity." onAction={() => refetchSummary()} />
             ) : recentJobs.length === 0 ? (
               <EmptyHint
                 icon={<Workflow className="h-10 w-10 opacity-30" />}
@@ -396,19 +375,19 @@ export default function DashboardLandingPage() {
             {reviewsLoading ? (
               <MetricGridSkeleton compact />
             ) : reviewsError ? (
-              <InlineError message="Failed to load review summary." onAction={() => refetchReviews()} />
+              <InlineError message="Failed to load review summary." onAction={() => refetchSummary()} />
             ) : (
               <>
                 <div className="mb-4 rounded-xl border border-[#3F3223] bg-[linear-gradient(180deg,rgba(54,37,18,0.42),rgba(23,18,13,0.92))] p-4">
                   <div className="mb-2 text-xs uppercase tracking-[0.18em] text-amber-300/80">Open cases</div>
-                  <div className="text-3xl font-semibold text-amber-300">{openReviews.length}</div>
+                  <div className="text-3xl font-semibold text-amber-300">{openReviewCount}</div>
                   <div className="mt-1 text-sm text-amber-100/80">
                     {commonReviewDocType ? `Most common: ${commonReviewDocType}` : 'No pending review pressure'}
                   </div>
                 </div>
 
                 <div className="mb-4 space-y-3">
-                  {openReviews.slice(0, 3).map((review) => (
+                  {reviewSpotlight.map((review) => (
                     <Link
                       key={review.id}
                       to={`/reviews/${review.id}`}
@@ -742,28 +721,6 @@ function EmptyHint({
       </div>
     </div>
   );
-}
-
-function getTopDocType(reviews: ReviewCase[]): string | null {
-  if (reviews.length === 0) {
-    return null;
-  }
-
-  const counts = new Map<string, number>();
-  for (const review of reviews) {
-    const key = review.doc_type ?? 'unknown';
-    counts.set(key, (counts.get(key) ?? 0) + 1);
-  }
-
-  let topDocType: string | null = null;
-  let topCount = 0;
-  for (const [docType, count] of counts) {
-    if (count > topCount) {
-      topDocType = docType;
-      topCount = count;
-    }
-  }
-  return topDocType;
 }
 
 function capitalize(value: string): string {

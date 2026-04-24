@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link, useLocation, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CheckCircle, Circle, Loader2, Clock, AlertTriangle, ArrowRight, FileWarning, ShieldCheck, Sparkles, Trash2 } from 'lucide-react';
 import { jobsApi } from '@/lib/api/jobsApi';
@@ -37,9 +37,11 @@ const STAGE_DESCRIPTIONS: Record<string, string> = {
 
 export default function JobDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const returnTo = (location.state as { returnTo?: string } | null)?.returnTo ?? '/jobs';
 
   const { data: job, isLoading, isError } = useQuery<Job>({
     queryKey: ['job', id],
@@ -58,7 +60,7 @@ export default function JobDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['reviews'] });
       queryClient.invalidateQueries({ queryKey: ['result'] });
       queryClient.invalidateQueries({ queryKey: ['recovery'] });
-      navigate('/jobs');
+      navigate(returnTo, { replace: true });
     },
   });
 
@@ -80,7 +82,7 @@ export default function JobDetailPage() {
         <div className="card p-8 text-center">
           <AlertTriangle className="w-12 h-12 text-red-400 mx-auto mb-3" />
           <p className="text-gray-400 text-sm">Could not load job. Check that the job ID is valid.</p>
-          <Link to="/jobs" className="btn-primary mt-4 inline-block">Back to Jobs</Link>
+          <Link to={returnTo} className="btn-primary mt-4 inline-block">Back to Jobs</Link>
         </div>
       </div>
     );
@@ -129,7 +131,7 @@ export default function JobDetailPage() {
 
       <div className="mb-6">
         <div className="flex items-center gap-2 text-sm text-gray-400 mb-2">
-          <Link to="/jobs" className="hover:text-white transition-colors">Jobs</Link>
+          <Link to={returnTo} className="hover:text-white transition-colors">Jobs</Link>
           <span>/</span>
           <span className="font-mono text-xs">{job.job_id.slice(0, 8)}...</span>
         </div>
@@ -153,9 +155,9 @@ export default function JobDetailPage() {
       <div className="card p-8">
         {/* Job header */}
         <div className="mb-8 pb-6 border-b border-[#2A2A3E]">
-          <div className="flex items-start justify-between mb-4">
-            <div className="flex-1">
-              <h3 className="text-lg font-medium text-white mb-3">{job.file_name ?? `Job ${job.job_id.slice(0, 8)}`}</h3>
+          <div className="flex flex-wrap items-start justify-between gap-4 mb-4">
+            <div className="min-w-0 flex-1">
+              <h3 className="text-lg font-medium text-white mb-3 break-all">{job.file_name ?? `Job ${job.job_id.slice(0, 8)}`}</h3>
               <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm">
                 <MetaRow label="Job ID" value={<span className="font-mono text-xs">{job.job_id}</span>} />
                 <MetaRow label="Doc Type" value={job.doc_type ?? '-'} />
@@ -163,7 +165,7 @@ export default function JobDetailPage() {
                 <MetaRow label="Finished" value={formatDate(job.finished_at)} />
               </div>
             </div>
-            <StatusPill status={job.status} />
+            <StatusPill status={job.status} className="max-w-full shrink-0 self-start" />
           </div>
 
           {/* Failure reason */}
@@ -272,7 +274,7 @@ export default function JobDetailPage() {
         {terminal && (
           <div className="flex gap-3 pt-6 border-t border-[#2A2A3E] justify-center">
             {(job.status === 'completed' || job.status === 'needs_review' || job.status === 'low_confidence') && (
-              <Link to={`/jobs/${job.job_id}/result`} className="btn-primary">
+              <Link to={`/jobs/${job.job_id}/result`} state={{ returnTo }} className="btn-primary">
                 View Result
               </Link>
             )}
@@ -281,7 +283,7 @@ export default function JobDetailPage() {
                 Open Review Case
               </Link>
             )}
-            <Link to="/jobs" className="btn-secondary">
+            <Link to={returnTo} className="btn-secondary">
               Back to Jobs
             </Link>
           </div>

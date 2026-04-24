@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Iterable, Optional
 
-from sqlalchemy import func
+from sqlalchemy import Text, cast, func, or_
 
 from api.models.responses import (
     FieldCorrectionResponse,
@@ -237,6 +237,7 @@ def build_review_field_items_from_validation(
     confidence_data: dict[str, Any],
     validation_summary: dict[str, Any],
     validation_errors: list[dict[str, Any]],
+    collapse_repeated_groups: bool = True,
 ) -> list[dict[str, Any]]:
     return _build_review_field_items(
         document_type=document_type,
@@ -244,6 +245,7 @@ def build_review_field_items_from_validation(
         confidence_data=confidence_data,
         validation_summary=validation_summary,
         validation_errors=validation_errors,
+        collapse_repeated_groups=collapse_repeated_groups,
     )
 
 
@@ -335,11 +337,17 @@ def attach_recovery_proposals_to_review_case(
         if not field_path:
             continue
 
-        item = existing_items.get(field_path)
+        item = _resolve_review_item_for_proposal(existing_items, field_path)
         if item is None:
             continue
 
-        item.proposed_value_jsonb = proposal.get("proposed_value")
+        if item.field_path == field_path:
+            item.proposed_value_jsonb = proposal.get("proposed_value")
+        else:
+            item.proposed_value_jsonb = _merge_grouped_proposal_value(
+                item.proposed_value_jsonb,
+                proposal,
+            )
         item.recovery_attempt_number = recovery_attempt_number
         if proposal.get("evidence_text"):
             item.evidence_text = proposal["evidence_text"]
@@ -350,6 +358,54 @@ def attach_recovery_proposals_to_review_case(
             )
 
 
+def _resolve_review_item_for_proposal(
+    existing_items: dict[str, models.ReviewFieldItem],
+    field_path: str,
+):
+    exact = existing_items.get(field_path)
+    if exact is not None:
+        return exact
+
+    normalized_field_path = _normalise_field_path(field_path)
+    parent_candidates = []
+    for item_path, item in existing_items.items():
+        normalized_item_path = _normalise_field_path(item_path)
+        if normalized_field_path.startswith(normalized_item_path + "."):
+            parent_candidates.append((normalized_item_path.count("."), item))
+
+    if not parent_candidates:
+        return None
+
+    parent_candidates.sort(key=lambda entry: entry[0], reverse=True)
+    return parent_candidates[0][1]
+
+
+def _merge_grouped_proposal_value(existing_value: Any, proposal: dict[str, Any]) -> dict[str, Any]:
+    bundle = existing_value if isinstance(existing_value, dict) else {}
+    changes = list(bundle.get("changes") or [])
+
+    field_path = str(proposal.get("field_path") or "").strip()
+    if field_path and not any(str(change.get("field_path") or "").strip() == field_path for change in changes):
+        changes.append(
+            {
+                "field_path": field_path,
+                "proposed_value": proposal.get("proposed_value"),
+                "evidence_text": proposal.get("evidence_text"),
+                "reason": proposal.get("reason"),
+                "confidence": proposal.get("confidence"),
+            }
+        )
+
+    summary = bundle.get("summary")
+    if not summary:
+        summary = "AI suggested updates for fields within this grouped section."
+
+    return {
+        "summary": summary,
+        "changes": changes,
+    }
+
+
 def list_review_cases(
     db,
     *,
@@ -358,6 +414,7 @@ def list_review_cases(
     page_size: int,
     status: Optional[str] = None,
     document_type: Optional[str] = None,
+    search: Optional[str] = None,
 ):
     count_query = db.query(func.count(models.ReviewCase.id)).filter(models.ReviewCase.user_id == user_id)
     rows_query = (
@@ -377,6 +434,21 @@ def list_review_cases(
     if document_type:
         count_query = count_query.filter(models.ReviewCase.document_type == document_type)
         rows_query = rows_query.filter(models.ReviewCase.document_type == document_type)
+    normalized_search = (search or "").strip()
+    if normalized_search:
+        pattern = f"%{normalized_search}%"
+        search_filter = or_(
+            models.Document.filename.ilike(pattern),
+            models.ReviewCase.document_type.ilike(pattern),
+            cast(models.ReviewCase.id, Text).ilike(pattern),
+            cast(models.ReviewCase.extraction_id, Text).ilike(pattern),
+        )
+        count_query = (
+            count_query
+            .join(models.Document, models.ReviewCase.document_id == models.Document.id, isouter=True)
+            .filter(search_filter)
+        )
+        rows_query = rows_query.filter(search_filter)
 
     total = int(count_query.scalar() or 0)
     rows = (
@@ -735,6 +807,7 @@ def _build_review_field_items(
     confidence_data: dict[str, Any],
     validation_summary: dict[str, Any],
     validation_errors: list[dict[str, Any]],
+    collapse_repeated_groups: bool,
 ) -> list[dict[str, Any]]:
     overall_confidence = _safe_float(confidence_data.get("overall_confidence"))
     grouped: dict[str, dict[str, Any]] = {}
@@ -770,7 +843,8 @@ def _build_review_field_items(
         if error.get("actual") is not None:
             grouped[field_path]["actual"].append(str(error["actual"]))
 
-    grouped = _collapse_repeated_indexed_issue_groups(grouped)
+    if collapse_repeated_groups:
+        grouped = _collapse_repeated_indexed_issue_groups(grouped)
 
     for field_path in _get_required_review_fields(document_type):
         if _is_blank(_get_nested_value(structured_data, field_path)) and field_path not in grouped:

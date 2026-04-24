@@ -9,10 +9,18 @@ This module handles interaction with Mistral AI for:
 
 import json
 import re
+import threading
 import time
 from copy import deepcopy
 from datetime import datetime
 from typing import Any, Dict, Optional
+
+# ── Global API call pacer ──────────────────────────────────────────────────
+# Enforces a minimum gap between ALL Mistral calls across the process.
+# Prevents 429 cascades when extraction → validation → recovery fire in series.
+_mistral_call_lock = threading.Lock()
+_last_mistral_call_ts: float = 0.0
+MIN_CALL_INTERVAL_SECONDS: float = 3.0  # minimum gap between any two calls
 
 from mistralai import Mistral
 
@@ -250,7 +258,18 @@ def _safe_numeric_or_none(value: Any) -> Optional[float]:
         return None
     try:
         if isinstance(value, str):
-            cleaned = value.strip().replace(",", "")
+            cleaned = value.strip()
+            # ── Strip currency prefixes / OCR artifacts ───────────────────
+            # ₹ (U+20B9) is often misread by Tesseract as "7".
+            # e.g. "₹5,45,700" → "75,45,700" → must become "545700"
+            # Order matters: strip the real symbol first, then the OCR ghost.
+            cleaned = re.sub(r"[₹₨\u20B9]", "", cleaned)        # real rupee symbols
+            cleaned = re.sub(r"(?i)^\s*Rs\.?\s*", "", cleaned)  # Rs / Rs.
+            cleaned = re.sub(r"[\u0930\u0941]", "", cleaned)     # रु (Devanagari)
+            cleaned = cleaned.replace(",", "")
+            # Leading "7" followed by 4+ digits is the ₹→7 OCR ghost
+            cleaned = re.sub(r"^7(\d{4,})$", r"\1", cleaned.strip())
+            # Keep only digits, dot, minus
             cleaned = re.sub(r"[^\d.\-]", "", cleaned)
             if cleaned in {"", "-", ".", "-."}:
                 return None
@@ -283,6 +302,11 @@ class AIAgent:
             f"AIAgent initialized with model={self.model}, timeout_ms={self.timeout_ms}, "
             f"retries={self.max_retries}"
         )
+
+    @staticmethod
+    def _is_rate_limit_error(exc: Exception) -> bool:
+        message = str(exc or "").lower()
+        return "429" in message or "rate limit" in message or "rate_limited" in message
 
     def classify_document(self, text_sample: str, max_length: int = 2000) -> Dict[str, Any]:
         """
@@ -365,7 +389,12 @@ Return exactly:
                 )
             return fallback
 
-    def extract_structured_data(self, full_text: str, document_type: str) -> Dict[str, Any]:
+    def extract_structured_data(
+        self,
+        full_text: str,
+        document_type: str,
+        extraction_context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
         """
         Extract structured data based on document type schema.
         Long documents use chunked extraction for better coverage.
@@ -392,12 +421,17 @@ Return exactly:
                     document_type,
                     schema_dict,
                     instructions,
+                    extraction_context=extraction_context,
                     chunk_size=chunk_size,
                     overlap=overlap,
                 )
 
             prompt = self._create_extraction_prompt(
-                full_text, document_type, schema_dict, instructions
+                full_text,
+                document_type,
+                schema_dict,
+                instructions,
+                extraction_context=extraction_context,
             )
             logger.info(f"Calling Mistral AI for {document_type} data extraction")
             response_text = self._request_chat_completion(
@@ -435,6 +469,7 @@ Return exactly:
         structured_data: Dict[str, Any],
         weak_fields: list[dict[str, Any]],
         validation_summary: Optional[Dict[str, Any]] = None,
+        extraction_context: Optional[Dict[str, Any]] = None,
         max_text_chars: int = 7000,
     ) -> Dict[str, Any]:
         """
@@ -467,13 +502,17 @@ You must follow these rules strictly:
 2. Do not change fields that are not listed.
 3. If evidence is insufficient, return action="no_change".
 4. Use OCR/document text as the primary evidence source.
-5. Return valid JSON only.
+5. Prefer structured row/table context when available.
+6. Return valid JSON only.
 
 Document type:
 {document_type}
 
 Validation summary:
 {json.dumps(validation_summary or {}, ensure_ascii=False, indent=2)}
+
+Document structure context:
+{self._build_document_structure_context(doc_type=document_type, extraction_context=extraction_context)}
 
 Weak fields to review:
 {json.dumps(weak_field_payload, ensure_ascii=False, indent=2)}
@@ -520,6 +559,145 @@ Return exactly this JSON shape:
                 continue
             field_path = str(change.get("field_path") or "").strip()
             if not field_path or field_path not in allowed_paths:
+                continue
+            action = str(change.get("action") or "no_change").strip().lower()
+            if action not in {"update", "no_change"}:
+                action = "no_change"
+            try:
+                confidence = float(change.get("confidence", 0.0))
+            except (TypeError, ValueError):
+                confidence = 0.0
+            normalized_changes.append(
+                {
+                    "field_path": field_path,
+                    "action": action,
+                    "proposed_value": change.get("proposed_value"),
+                    "evidence_text": str(change.get("evidence_text") or "").strip() or None,
+                    "reason": str(change.get("reason") or "").strip() or None,
+                    "confidence": round(max(0.0, min(1.0, confidence)), 2),
+                }
+            )
+
+        return {
+            "changes": normalized_changes,
+            "summary": str(result.get("summary") or "").strip(),
+        }
+
+    def repair_grouped_section(
+        self,
+        *,
+        full_text: str,
+        document_type: str,
+        section_path: str,
+        structured_data: Dict[str, Any],
+        current_section: Any,
+        candidate_fields: list[dict[str, Any]],
+        validation_summary: Optional[Dict[str, Any]] = None,
+        extraction_context: Optional[Dict[str, Any]] = None,
+        max_text_chars: int = 7000,
+    ) -> Dict[str, Any]:
+        """
+        Ask the LLM to repair a repeated or grouped section as one unit while
+        still returning concrete field-level changes. This is a bounded fallback
+        used only after simple field repair fails.
+        """
+        schema = get_schema(document_type)
+        if not schema:
+            raise ValueError(f"No schema found for recovery document type: {document_type}")
+
+        if not candidate_fields:
+            return {"changes": [], "summary": "No grouped recovery fields were supplied."}
+
+        allowed_paths = []
+        candidate_payload = []
+        for item in candidate_fields:
+            field_path = str(item.get("field_path") or "").strip()
+            if not field_path:
+                continue
+            allowed_paths.append(field_path)
+            candidate_payload.append(
+                {
+                    "field_path": field_path,
+                    "reason_code": item.get("reason_code"),
+                    "current_value": item.get("original_value"),
+                    "validation_message": item.get("validation_message"),
+                    "is_critical": bool(item.get("is_critical")),
+                }
+            )
+
+        prompt = f"""You are repairing a weak grouped section for a {document_type} document.
+
+This is a second-pass recovery for the section "{section_path}".
+Treat the section as one connected unit, but only return updates for the allowed field paths.
+
+Rules:
+1. Repair only the listed allowed field paths.
+2. Consider arithmetic consistency across the full section before proposing updates.
+3. Use OCR/document text and structured table context as primary evidence.
+4. If evidence is insufficient, return action="no_change".
+5. Do not change fields outside the allowed field paths.
+6. Return valid JSON only.
+
+Document type:
+{document_type}
+
+Validation summary:
+{json.dumps(validation_summary or {}, ensure_ascii=False, indent=2)}
+
+Document structure context:
+{self._build_document_structure_context(doc_type=document_type, extraction_context=extraction_context)}
+
+Grouped section path:
+{section_path}
+
+Current grouped section value:
+{json.dumps(current_section, ensure_ascii=False, indent=2)}
+
+Allowed field paths inside this section:
+{json.dumps(candidate_payload, ensure_ascii=False, indent=2)}
+
+Full structured data:
+{json.dumps(structured_data, ensure_ascii=False, indent=2)}
+
+OCR/document text excerpt:
+{(full_text or '')[:max_text_chars]}
+
+Return exactly this JSON shape:
+{{
+  "changes": [
+    {{
+      "field_path": "one of the allowed field paths",
+      "action": "update_or_no_change",
+      "proposed_value": "new value or null",
+      "evidence_text": "short row or section evidence copied from OCR/document text",
+      "reason": "short explanation of why this change repairs the section",
+      "confidence": 0.0
+    }}
+  ],
+  "summary": "short overall summary"
+}}"""
+
+        response_text = self._request_chat_completion(
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
+            max_tokens=min(self.max_tokens, 1400),
+            operation_name=f"{document_type} grouped recovery {section_path}",
+        )
+        result = self._parse_json_response(response_text)
+        if not isinstance(result, dict):
+            raise ValueError("Grouped recovery returned invalid JSON")
+
+        changes = result.get("changes")
+        if not isinstance(changes, list):
+            raise ValueError("Grouped recovery response missing 'changes' list")
+
+        normalized_changes = []
+        allowed_path_set = set(allowed_paths)
+        for change in changes:
+            if not isinstance(change, dict):
+                continue
+            field_path = str(change.get("field_path") or "").strip()
+            if not field_path or field_path not in allowed_path_set:
                 continue
             action = str(change.get("action") or "no_change").strip().lower()
             if action not in {"update", "no_change"}:
@@ -672,6 +850,7 @@ Return exactly this JSON shape:
         document_type: str,
         schema_dict: dict,
         instructions: str,
+        extraction_context: Optional[Dict[str, Any]] = None,
         chunk_size: int = 4000,
         overlap: int = 500,
     ) -> Dict[str, Any]:
@@ -694,7 +873,11 @@ Return exactly this JSON shape:
             logger.info(f"Extracting chunk {index}/{len(chunks)} ({len(chunk)} chars)")
             try:
                 prompt = self._create_extraction_prompt(
-                    chunk, document_type, schema_dict, instructions
+                    chunk,
+                    document_type,
+                    schema_dict,
+                    instructions,
+                    extraction_context=extraction_context,
                 )
                 response_text = self._request_chat_completion(
                     messages=[{"role": "user", "content": prompt}],
@@ -735,28 +918,174 @@ Return exactly this JSON shape:
         return result
 
     def _create_extraction_prompt(
-        self, text: str, doc_type: str, schema: dict, instructions: str
+        self,
+        text: str,
+        doc_type: str,
+        schema: dict,
+        instructions: str,
+        extraction_context: Optional[dict[str, Any]] = None,
     ) -> str:
         schema_json = json.dumps(schema, indent=2)
+        document_structure = self._build_document_structure_context(
+            doc_type=doc_type,
+            extraction_context=extraction_context,
+        )
+        document_specific_rules = self._build_document_specific_extraction_rules(doc_type)
         return f"""{instructions}
 
-SCHEMA TO EXTRACT:
+SCHEMA TO EXTRACT (minimum expected fields):
 {schema_json}
 
 DOCUMENT TYPE:
 {doc_type}
 
+DOCUMENT STRUCTURE CONTEXT:
+{document_structure}
+
 DOCUMENT TEXT:
 {text}
 
 CRITICAL INSTRUCTIONS:
-1. Respond only with valid JSON matching the schema structure.
-2. Use null for any missing fields.
+1. Respond only with valid JSON.
+2. Use null for any schema field that is genuinely absent from the document.
 3. Keep dates in the requested format.
-4. Extract all relevant information.
-5. Do not add explanations outside the JSON.
+4. Use row-wise and table-wise evidence when the document contains tables or repeated entries.
+5. Do not shift numbers across neighboring columns.
+6. Prefer structured table context over ambiguous flattened OCR text when both are available.
+7. Do not add explanations outside the JSON.
+8. THE SCHEMA IS A MINIMUM — IT IS NOT A CEILING.
+   After filling in all schema fields, look at the document again and collect
+   every field, label, or value that is present in the document but NOT already
+   covered by the schema. Put ALL such extra fields into an "additional_fields"
+   key as a flat dictionary of {{ "field_label": value }}.
+   Examples of things that go in additional_fields:
+     - Any field printed on the document with no matching schema key
+     - Tax line-items or surcharges not in the schema (e.g. cess, surcharge)
+     - Reference numbers, certification numbers, registration codes
+     - Authorisation / signatory details
+     - Any numeric or text value that has a clear label in the source document
+9. OCR CURRENCY ARTIFACT — IMPORTANT:
+   The Indian Rupee symbol ₹ (Unicode U+20B9) is frequently misread by OCR
+   as the digit "7". So ₹5,25,100 may appear in the OCR text as "75,25,100".
+   When you see a number starting with "7" followed by 4 or more digits that
+   is used as a currency amount, strip the leading "7" — it is the ₹ symbol.
+   Also strip "Rs.", "Rs", "रु" prefixes before extracting the numeric value.
+   Always output plain numbers with no currency symbols (e.g. 525100 not ₹5,25,100).
 
-Extract the data now:"""
+DOCUMENT-SPECIFIC RULES:
+{document_specific_rules}
+
+Extract the data now (include "additional_fields" even if empty):"""
+
+    def _build_document_structure_context(
+        self,
+        *,
+        doc_type: str,
+        extraction_context: Optional[dict[str, Any]],
+    ) -> str:
+        if not extraction_context:
+            return "No structured context available."
+
+        parts: list[str] = []
+
+        signals = extraction_context.get("signals")
+        if isinstance(signals, dict) and signals:
+            parts.append("Signals:")
+            parts.append(json.dumps(signals, ensure_ascii=False, indent=2))
+
+        line_blocks = extraction_context.get("line_blocks")
+        if isinstance(line_blocks, list) and line_blocks:
+            preview_lines = line_blocks[:20]
+            parts.append("Important lines:")
+            parts.append("\n".join(f"- {line}" for line in preview_lines))
+
+        table_blocks = extraction_context.get("table_blocks")
+        if isinstance(table_blocks, list) and table_blocks:
+            serialized_tables = []
+            for table in table_blocks[:4]:
+                if not isinstance(table, dict):
+                    continue
+                serialized_tables.append(
+                    {
+                        "page": table.get("page"),
+                        "source": table.get("source"),
+                        "headers": table.get("headers"),
+                        "rows": (table.get("rows") or [])[:8],
+                    }
+                )
+            if serialized_tables:
+                parts.append("Detected tables:")
+                parts.append(json.dumps(serialized_tables, ensure_ascii=False, indent=2))
+
+        if doc_type in {"bank_statement", "invoice", "retail_receipt", "marksheet"}:
+            numeric_lines = extraction_context.get("numeric_dense_lines")
+            if isinstance(numeric_lines, list) and numeric_lines:
+                parts.append("Numeric lines:")
+                parts.append("\n".join(f"- {line}" for line in numeric_lines[:20]))
+
+        if doc_type in {"purchase_order", "payslip", "balance_sheet", "utility_bill"}:
+            numeric_lines = extraction_context.get("numeric_dense_lines")
+            if isinstance(numeric_lines, list) and numeric_lines:
+                parts.append("Numeric lines:")
+                parts.append("\n".join(f"- {line}" for line in numeric_lines[:20]))
+
+        return "\n\n".join(parts) if parts else "No structured context available."
+
+    def _build_document_specific_extraction_rules(self, doc_type: str) -> str:
+        rules = {
+            "bank_statement": [
+                "Treat transactions as row-wise records.",
+                "Do not move values between debit, credit, and balance columns.",
+                "Prefer a detected transaction table over flattened OCR text when they disagree.",
+                "Make opening balance, transaction balances, and closing balance internally consistent.",
+            ],
+            "invoice": [
+                "Treat line items as row-wise records — each table row is one item.",
+                "Column order in Indian invoices: Sr No | Item Name/Description | Qty | Unit Price | GST% | Amount.",
+                "item_name MUST be a text string (product/service name). If it looks like a number, you have the wrong column.",
+                "quantity is a small integer count (e.g. 3, 5, 12). It is NEVER a large price like 45000.",
+                "unit_price is the per-unit rate (e.g. 45000). It is NEVER the same value as total.",
+                "gst_rate is the percentage (e.g. 18 for 18%). Do NOT leave it null if printed in the table.",
+                "Extract CGST and SGST as separate numeric amounts. They are usually equal for intra-state.",
+                "Extract vendor.gstin and customer.gstin from the document header.",
+                "Extract bank_details.ifsc_code if a bank section or IFSC label is present.",
+                "Extract amount_in_words exactly as printed.",
+                "Do not shift quantity, unit_price, gst_rate, and total across neighboring columns.",
+                "Prefer detected table rows for line items and totals over flattened OCR text.",
+            ],
+            "retail_receipt": [
+                "Keep receipt line items row-wise and preserve printed totals.",
+                "Do not merge adjacent numeric columns into one value.",
+            ],
+            "marksheet": [
+                "Treat subjects as row-wise records.",
+                "Do not mix subject names with neighboring marks columns.",
+                "Prefer table rows for subject-wise marks and totals.",
+            ],
+            "purchase_order": [
+                "Treat line items as row-wise records.",
+                "Do not shift quantity, unit price, tax, and total across neighboring columns.",
+                "Prefer detected table rows for ordered items and totals.",
+            ],
+            "payslip": [
+                "Treat earnings and deductions as row-wise components.",
+                "Do not concatenate amounts from adjacent columns.",
+                "Prefer printed totals and reconcile components against them.",
+            ],
+            "balance_sheet": [
+                "Treat assets and liabilities as grouped row-wise entries.",
+                "Do not duplicate rows across sections.",
+                "Prefer table/group structure over flattened OCR text when assigning line items.",
+            ],
+            "utility_bill": [
+                "Treat charge components as row-wise entries when present.",
+                "Keep meter readings, units, and totals aligned with the printed layout.",
+            ],
+        }.get(doc_type, [])
+
+        if not rules:
+            return "Use the structured context when available and stay close to the OCR evidence."
+        return "\n".join(f"- {rule}" for rule in rules)
 
     def _request_chat_completion(
         self,
@@ -767,11 +1096,32 @@ Extract the data now:"""
         operation_name: str,
     ) -> str:
         """
-        Call Mistral with bounded retries so transient outages fail fast.
+        Call Mistral with bounded retries and a global inter-call pacer.
+        The pacer enforces MIN_CALL_INTERVAL_SECONDS between any two calls
+        so that rapid sequential jobs (extract → validate → recover → triage)
+        do not all hit the API within the same rate-limit window.
         """
-        last_error: Optional[Exception] = None
+        global _last_mistral_call_ts
 
-        for attempt in range(1, self.max_retries + 1):
+        last_error: Optional[Exception] = None
+        # Rate-limited calls get extra retries on top of the base max
+        extra_rate_limit_retries = 3
+        max_attempts = self.max_retries
+
+        for attempt in range(1, max_attempts + 1):
+            # ── Pace calls: wait until the minimum gap since last call ──
+            with _mistral_call_lock:
+                now = time.monotonic()
+                gap = now - _last_mistral_call_ts
+                if gap < MIN_CALL_INTERVAL_SECONDS:
+                    wait = MIN_CALL_INTERVAL_SECONDS - gap
+                    logger.debug(
+                        f"Mistral pacer: sleeping {wait:.2f}s before {operation_name} "
+                        f"(attempt {attempt})"
+                    )
+                    time.sleep(wait)
+                _last_mistral_call_ts = time.monotonic()
+
             try:
                 response = self.client.chat.complete(
                     model=self.model,
@@ -788,17 +1138,26 @@ Extract the data now:"""
                 return response_text
             except Exception as exc:
                 last_error = exc
-                if attempt >= self.max_retries:
+                rate_limited = self._is_rate_limit_error(exc)
+                if rate_limited:
+                    max_attempts = max(max_attempts, self.max_retries + extra_rate_limit_retries)
+
+                if attempt >= max_attempts:
                     break
-                sleep_seconds = (self.retry_backoff_ms * attempt) / 1000.0
+
+                if rate_limited:
+                    # Exponential back-off starting at 15s for rate limits
+                    sleep_seconds = max(15.0, (self.retry_backoff_ms / 1000.0) * (2 ** attempt))
+                else:
+                    sleep_seconds = (self.retry_backoff_ms * attempt) / 1000.0
                 logger.warning(
-                    f"Mistral {operation_name} failed on attempt {attempt}/{self.max_retries}: {exc}. "
+                    f"Mistral {operation_name} failed on attempt {attempt}/{max_attempts}: {exc}. "
                     f"Retrying in {sleep_seconds:.2f}s."
                 )
                 time.sleep(sleep_seconds)
 
         raise RuntimeError(
-            f"Mistral {operation_name} failed after {self.max_retries} attempt(s): {last_error}"
+            f"Mistral {operation_name} failed after {max_attempts} attempt(s): {last_error}"
         )
 
     def _heuristic_classify_document(self, text_sample: str) -> Dict[str, Any]:
@@ -1185,7 +1544,16 @@ Extract the data now:"""
         if isinstance(value, (int, float)):
             return float(value)
         if isinstance(value, str):
-            cleaned = value.strip().replace(",", "")
+            cleaned = value.strip()
+            # ── Strip currency prefixes / OCR artifacts ───────────────────
+            # ₹ (U+20B9) is often misread by Tesseract as "7".
+            # e.g. "₹5,45,700" → OCR → "75,45,700" → must become 545700
+            cleaned = re.sub(r"[₹₨\u20B9]", "", cleaned)        # real rupee symbols
+            cleaned = re.sub(r"(?i)^\s*Rs\.?\s*", "", cleaned)  # Rs / Rs.
+            cleaned = re.sub(r"[\u0930\u0941]", "", cleaned)     # रु (Devanagari)
+            cleaned = cleaned.replace(",", "")
+            # Leading "7" followed by 4+ digits is the ₹→7 OCR ghost
+            cleaned = re.sub(r"^7(\d{4,})$", r"\1", cleaned.strip())
             cleaned = re.sub(r"[^\d.\-]", "", cleaned)
             if cleaned in {"", "-", ".", "-."}:
                 return value

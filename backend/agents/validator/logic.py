@@ -467,7 +467,7 @@ class ValidationAgent:
                 logger.warning(f"ValidationAgent: LLM init failed — {exc}")
 
         self.model = config.MISTRAL_MODEL
-        self._llm_max_retries: int = 3  # retries per LLM call
+        self._llm_max_retries: int = max(1, int(config.MISTRAL_MAX_RETRIES))
         logger.info("ValidationAgent initialised")
 
     # ──────────────────────────────────────────────────────────────────────────
@@ -692,25 +692,20 @@ class ValidationAgent:
         # ── Pillar 4: Autonomous truth tests ──────────────────────────────
         if config.VALIDATION_ENABLE_TRUTH_TESTS:
             logger.info("Validation Pillar 4: Autonomous Truth Tests")
-            truth_tests = self._generate_truth_tests(structured, document_type)
+            truth_tests = self._generate_truth_tests(normalised, document_type)
+            truth_tests = self._sanitize_truth_tests(truth_tests, normalised, document_type)
         else:
             logger.info("Validation Pillar 4 skipped - disabled by configuration")
             truth_tests = []
 
         # Failed truth tests → errors
-        for tt in truth_tests:
-            if tt.test_name == "llm_generation_failed":
-                continue
-            if not tt.passed:
-                errors.append(
-                    ValidationError(
-                        pillar=ValidationPillar.TRUTH_TEST,
-                        severity=Severity.WARNING,
-                        message=f"Truth test failed: {tt.assertion}",
-                        expected="pass",
-                        actual="fail",
-                    )
-                )
+        errors.extend(
+            self._build_truth_test_issues(
+                truth_tests=truth_tests,
+                existing_errors=errors,
+            )
+        )
+        errors = self._deduplicate_validation_errors(errors)
 
         # ── Calculate confidence ───────────────────────────────────────────
         confidence = self._compute_confidence(errors, truth_tests, norm_changes)
@@ -1185,6 +1180,7 @@ Rules:
 
 For each test, return a JSON object with:
 - "test_name"       : short snake_case identifier
+- "field"           : primary schema field path most relevant to this test, or null for document-wide checks
 - "assertion"       : natural-language statement of what should be true
 - "passed"          : true if the assertion holds, false otherwise
 - "detail"          : explanation of why it failed, null if passed
@@ -1211,6 +1207,7 @@ Respond ONLY with a valid JSON array. Example:
                 results.append(
                     TruthTestResult(
                         test_name=t.get("test_name", "unnamed_test"),
+                        field=t.get("field"),
                         assertion=t.get("assertion", ""),
                         passed=bool(t.get("passed", False)),
                         detail=t.get("detail"),
@@ -1227,6 +1224,90 @@ Respond ONLY with a valid JSON array. Example:
     # ──────────────────────────────────────────────────────────────────────────
     #  Helpers
     # ──────────────────────────────────────────────────────────────────────────
+
+    def _sanitize_truth_tests(
+        self,
+        truth_tests: List[TruthTestResult],
+        data: Any,
+        doc_type: Optional[str],
+    ) -> List[TruthTestResult]:
+        sanitized: List[TruthTestResult] = []
+        seen: set[tuple[str, str, str, str]] = set()
+
+        for test in truth_tests:
+            assertion = " ".join(str(test.assertion or "").split()).strip()
+            if not assertion:
+                continue
+
+            field = _normalise_field_path(str(test.field or "").strip()) if test.field else None
+            if field and not _is_reviewable_field(field):
+                field = None
+
+            detail = _compact_truth_test_text(test.detail)
+            signature = (
+                field or "",
+                _truth_test_family_from_parts(
+                    test_name=str(test.test_name or ""),
+                    assertion=assertion,
+                    detail=detail,
+                ),
+                _truth_test_text_signature(assertion),
+                "pass" if test.passed else "fail",
+            )
+            if signature in seen:
+                continue
+            seen.add(signature)
+
+            sanitized.append(
+                TruthTestResult(
+                    test_name=(str(test.test_name or "unnamed_test").strip() or "unnamed_test"),
+                    field=field,
+                    assertion=assertion,
+                    passed=bool(test.passed),
+                    detail=detail,
+                    expected_value=_compact_truth_test_text(test.expected_value),
+                    actual_value=_compact_truth_test_text(test.actual_value),
+                )
+            )
+
+        return sanitized[:8]
+
+    def _build_truth_test_issues(
+        self,
+        *,
+        truth_tests: List[TruthTestResult],
+        existing_errors: List[ValidationError],
+    ) -> List[ValidationError]:
+        issues: List[ValidationError] = []
+        for test in truth_tests:
+            if test.test_name == "llm_generation_failed" or test.passed:
+                continue
+            if any(_truth_test_overlaps_with_issue(test, issue) for issue in existing_errors):
+                continue
+
+            issues.append(
+                ValidationError(
+                    pillar=ValidationPillar.TRUTH_TEST,
+                    severity=Severity.WARNING,
+                    field=test.field,
+                    message=_build_truth_test_failure_message(test),
+                    expected=test.expected_value or "pass",
+                    actual=test.actual_value or "fail",
+                )
+            )
+        return issues
+
+    def _deduplicate_validation_errors(
+        self,
+        errors: List[ValidationError],
+    ) -> List[ValidationError]:
+        deduped: dict[tuple[str, str, str], ValidationError] = {}
+        for issue in errors:
+            signature = _validation_issue_signature(issue)
+            current = deduped.get(signature)
+            if current is None or _prefer_validation_issue(issue, current):
+                deduped[signature] = issue
+        return list(deduped.values())
 
     def _compute_confidence(
         self,
@@ -2151,3 +2232,130 @@ def _coerce_contextual_issue_severity(
         expected=issue.expected,
         actual=issue.actual,
     )
+
+
+def _field_path_exists(data: Any, field_path: str) -> bool:
+    try:
+        value = _get_nested_value(data, field_path)
+    except Exception:
+        return False
+    return value is not None
+
+
+def _compact_truth_test_text(value: Any) -> Optional[str]:
+    compact = " ".join(str(value or "").split()).strip()
+    return compact[:220] if compact else None
+
+
+def _truth_test_family_from_parts(*, test_name: str, assertion: str, detail: Optional[str]) -> str:
+    text = f"{test_name} {assertion} {detail or ''}".lower()
+    if any(token in text for token in ("balance", "subtotal", "total", "sum", "tax", "qty", "quantity", "percentage", "marks", "amount")):
+        return "math_consistency"
+    if any(token in text for token in ("date", "expiry", "issue date", "due date", "start", "end", "future", "past")):
+        return "date_consistency"
+    if any(token in text for token in ("missing", "null", "empty", "required")):
+        return "required_field"
+    if any(token in text for token in ("digit", "format", "alphanumeric", "valid", "gstin", "pan", "aadhaar", "ifsc", "phone")):
+        return "format_validity"
+    return "general_consistency"
+
+
+def _truth_test_text_signature(text: str) -> str:
+    normalized = re.sub(r"[^a-z0-9]+", " ", str(text or "").lower())
+    tokens = [token for token in normalized.split() if token not in {"the", "a", "an", "should", "be", "is", "are", "to", "of", "and"}]
+    return " ".join(tokens[:10])
+
+
+def _validation_issue_family(issue: ValidationError) -> str:
+    text = f"{issue.field or ''} {issue.message or ''} {issue.expected or ''} {issue.actual or ''}".lower()
+    if any(token in text for token in ("balance", "subtotal", "total", "sum", "tax", "qty", "quantity", "percentage", "marks", "amount", "mismatch")):
+        return "math_consistency"
+    if any(token in text for token in ("date", "expiry", "issue date", "due date", "start", "end", "future", "past")):
+        return "date_consistency"
+    if any(token in text for token in ("missing", "null", "empty", "required")):
+        return "required_field"
+    if any(token in text for token in ("digit", "format", "alphanumeric", "valid", "gstin", "pan", "aadhaar", "ifsc", "phone", "invalid")):
+        return "format_validity"
+    return "general_consistency"
+
+
+def _field_paths_overlap(left: str, right: str) -> bool:
+    left_norm = _normalise_field_path(left)
+    right_norm = _normalise_field_path(right)
+    return (
+        left_norm == right_norm
+        or left_norm.startswith(right_norm + ".")
+        or right_norm.startswith(left_norm + ".")
+    )
+
+
+def _build_truth_test_failure_message(test: TruthTestResult) -> str:
+    detail = _compact_truth_test_text(test.detail)
+    if detail:
+        return f"AI truth check failed: {detail}"
+    return f"AI truth check failed: {test.assertion}"
+
+
+def _truth_test_overlaps_with_issue(
+    truth_test: TruthTestResult,
+    issue: ValidationError,
+) -> bool:
+    if issue.pillar == ValidationPillar.TRUTH_TEST:
+        return False
+
+    if _truth_test_family_from_parts(
+        test_name=truth_test.test_name,
+        assertion=truth_test.assertion,
+        detail=truth_test.detail,
+    ) != _validation_issue_family(issue):
+        return False
+
+    if truth_test.field and issue.field and _field_paths_overlap(truth_test.field, issue.field):
+        return True
+
+    if truth_test.expected_value and issue.expected and truth_test.actual_value and issue.actual:
+        if (
+            str(truth_test.expected_value).strip() == str(issue.expected).strip()
+            and str(truth_test.actual_value).strip() == str(issue.actual).strip()
+        ):
+            return True
+
+    truth_sig = _truth_test_text_signature(f"{truth_test.assertion} {truth_test.detail or ''}")
+    issue_sig = _truth_test_text_signature(issue.message)
+    return bool(truth_sig and issue_sig and truth_sig == issue_sig)
+
+
+def _validation_issue_signature(issue: ValidationError) -> tuple[str, str, str]:
+    field = _normalise_field_path(issue.field or "") if issue.field else ""
+    family = _validation_issue_family(issue)
+    values = "|".join(
+        part.strip().lower()
+        for part in (
+            str(issue.expected or ""),
+            str(issue.actual or ""),
+        )
+        if part is not None
+    )
+    if not values:
+        values = _truth_test_text_signature(issue.message)
+    return field, family, values
+
+
+def _prefer_validation_issue(candidate: ValidationError, current: ValidationError) -> bool:
+    severity_rank = {
+        Severity.ERROR: 3,
+        Severity.WARNING: 2,
+        Severity.INFO: 1,
+    }
+    candidate_rank = severity_rank.get(candidate.severity, 0)
+    current_rank = severity_rank.get(current.severity, 0)
+    if candidate_rank != current_rank:
+        return candidate_rank > current_rank
+
+    if candidate.pillar != current.pillar:
+        if current.pillar == ValidationPillar.TRUTH_TEST:
+            return True
+        if candidate.pillar == ValidationPillar.TRUTH_TEST:
+            return False
+
+    return len(candidate.message or "") < len(current.message or "")

@@ -280,11 +280,23 @@ def _persist_job_result(
             validation_summary = summarize_validation_report(validation_report, validation_decision)
 
         recovery_summary = None
+        # ── High-confidence bypass gate ─────────────────────────────────────
+        # If extraction confidence already 0.90+ (grade A), recovery is very
+        # unlikely to improve things and wastes API quota that then rate-limits
+        # validation triage. Skip recovery and let the reviewers handle it.
+        _extraction_conf = (
+            (result.get("comprehensive_confidence") or {})
+            .get("overall_score")
+            or (result.get("confidence") or {})
+            .get("overall", 0.0)
+        )
+        _high_confidence_extraction = float(_extraction_conf or 0) >= 0.90
         if (
             config.ENABLE_AI_RECOVERY
             and validation_report is not None
             and validation_decision is not None
             and requires_review(final_status)
+            and not _high_confidence_extraction
         ):
             recovery_summary = run_bounded_recovery(
                 db,
@@ -426,6 +438,12 @@ def _persist_job_result(
             )
         )
         db.commit()
+        _log_persisted_job_summary(
+            extraction=extraction,
+            extraction_result=extraction_result,
+            validation_summary=validation_summary,
+            recovery_summary=recovery_summary,
+        )
         runtime_metrics.record_job_completion(
             status=final_status,
             validation_decision=extraction.validation_decision,
@@ -479,3 +497,21 @@ def _safe_file_size(path: str) -> Optional[int]:
     if target.exists():
         return target.stat().st_size
     return None
+
+
+def _log_persisted_job_summary(
+    *,
+    extraction: models.Extraction,
+    extraction_result: models.ExtractionResult,
+    validation_summary: Optional[dict],
+    recovery_summary: Optional[dict],
+) -> None:
+    logger.info(
+        f"Persisted job result | job_id={extraction.id} status={extraction.status} "
+        f"doc_type={extraction_result.document_type or 'unknown'} "
+        f"validation={extraction.validation_decision or 'n/a'} "
+        f"review_required={bool(extraction.review_required)} "
+        f"truth_failures={(validation_summary or {}).get('failed_truth_tests', 0)} "
+        f"recovery_reason={(recovery_summary or {}).get('reason')} "
+        f"recovery_attempts={len((recovery_summary or {}).get('attempts') or [])}"
+    )

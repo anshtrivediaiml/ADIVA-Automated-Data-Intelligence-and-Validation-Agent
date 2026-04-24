@@ -33,10 +33,13 @@ export interface ValidationSummary {
   error_count: number;
   warning_count: number;
   info_count: number;
+  truth_test_count?: number;
+  passed_truth_tests?: number;
   reason_codes: string[];
   review_reasons: string[];
   schema_supported: boolean;
   failed_truth_tests: number;
+  truth_test_failures?: string[];
   validation_time_seconds: number;
   document_type: string;
 }
@@ -165,6 +168,36 @@ export interface ReviewsListResponse {
   total?: number;
 }
 
+export interface PaginatedJobsResponse {
+  jobs: Job[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface JobSummary {
+  generated_at: string;
+  cache_ttl_seconds: number;
+  total_jobs: number;
+  active_count: number;
+  queued_count: number;
+  processing_count: number;
+  completed_count: number;
+  needs_review_count: number;
+  low_confidence_count: number;
+  failed_count: number;
+}
+
+export interface ReviewSummary {
+  generated_at: string;
+  cache_ttl_seconds: number;
+  total_reviews: number;
+  open_count: number;
+  in_progress_count: number;
+  resolved_count: number;
+  total_open_fields: number;
+}
+
 export interface HealthResponse {
   status: 'healthy' | 'degraded' | 'down';
   version?: string;
@@ -189,4 +222,47 @@ export interface SystemStatusResponse {
   runtime_metrics?: Record<string, unknown>;
   supported_languages?: string[];
   supported_document_types?: string[];
+}
+
+export interface DashboardRecentJob {
+  job_id: string;
+  file_name?: string | null;
+  document_type?: string | null;
+  doc_type?: string | null;
+  status: JobStatus;
+  submitted_at?: string | null;
+}
+
+export interface DashboardReviewSpotlight {
+  review_id: string;
+  id: string;
+  job_id: string;
+  file_name?: string | null;
+  document_type?: string | null;
+  doc_type?: string | null;
+  status: 'open' | 'resolved' | 'in_progress';
+  open_field_count: number;
+  created_at: string;
+}
+
+export interface DashboardSummary {
+  generated_at: string;
+  cache_ttl_seconds: number;
+  health_status: 'healthy' | 'degraded' | 'down' | string;
+  total_jobs: number;
+  jobs_today: number;
+  completed_today: number;
+  completed_count: number;
+  queued_count: number;
+  processing_count: number;
+  needs_review_count: number;
+  low_confidence_count: number;
+  failed_count: number;
+  active_count: number;
+  success_rate?: number | null;
+  open_review_cases: number;
+  total_open_review_fields: number;
+  common_review_doc_type?: string | null;
+  recent_jobs: DashboardRecentJob[];
+  review_spotlight: DashboardReviewSpotlight[];
 }

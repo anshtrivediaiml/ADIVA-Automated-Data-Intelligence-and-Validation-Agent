@@ -182,6 +182,30 @@ class JobStatusResponse(BaseModel):
     timings: Dict[str, float] = Field(default_factory=dict)
 
 
+class JobListResponse(BaseModel):
+    """Paginated job listing."""
+
+    total: int
+    page: int
+    page_size: int
+    jobs: List[JobStatusResponse] = Field(default_factory=list)
+
+
+class JobSummaryResponse(BaseModel):
+    """Lightweight job summary for list page headers."""
+
+    generated_at: datetime
+    cache_ttl_seconds: float
+    total_jobs: int = 0
+    active_count: int = 0
+    queued_count: int = 0
+    processing_count: int = 0
+    completed_count: int = 0
+    needs_review_count: int = 0
+    low_confidence_count: int = 0
+    failed_count: int = 0
+
+
 class JobResultResponse(BaseModel):
     """Planned final result contract for async orchestration."""
 
@@ -315,6 +339,18 @@ class ReviewCaseListResponse(BaseModel):
     reviews: List[ReviewCaseListItem] = Field(default_factory=list)
 
 
+class ReviewSummaryResponse(BaseModel):
+    """Lightweight review summary for list page headers."""
+
+    generated_at: datetime
+    cache_ttl_seconds: float
+    total_reviews: int = 0
+    open_count: int = 0
+    in_progress_count: int = 0
+    resolved_count: int = 0
+    total_open_fields: int = 0
+
+
 class ReviewCaseDetailResponse(BaseModel):
     """Detailed review case payload."""
 
@@ -390,3 +426,52 @@ class RecoveryAttemptListResponse(BaseModel):
     job_id: str
     total: int
     attempts: List[RecoveryAttemptResponse] = Field(default_factory=list)
+
+
+class DashboardRecentJobResponse(BaseModel):
+    """Compact recent-job item for the dashboard."""
+
+    job_id: str
+    file_name: Optional[str] = None
+    document_type: Optional[str] = None
+    doc_type: Optional[str] = None
+    status: str
+    submitted_at: Optional[datetime] = None
+
+
+class DashboardReviewSpotlightResponse(BaseModel):
+    """Compact review-case item for the dashboard."""
+
+    review_id: str
+    id: str
+    job_id: str
+    file_name: Optional[str] = None
+    document_type: Optional[str] = None
+    doc_type: Optional[str] = None
+    status: str
+    open_field_count: int = 0
+    created_at: datetime
+
+
+class DashboardSummaryResponse(BaseModel):
+    """Lightweight dashboard summary payload."""
+
+    generated_at: datetime
+    cache_ttl_seconds: float
+    health_status: str
+    total_jobs: int = 0
+    jobs_today: int = 0
+    completed_today: int = 0
+    completed_count: int = 0
+    queued_count: int = 0
+    processing_count: int = 0
+    needs_review_count: int = 0
+    low_confidence_count: int = 0
+    failed_count: int = 0
+    active_count: int = 0
+    success_rate: Optional[float] = None
+    open_review_cases: int = 0
+    total_open_review_fields: int = 0
+    common_review_doc_type: Optional[str] = None
+    recent_jobs: List[DashboardRecentJobResponse] = Field(default_factory=list)
+    review_spotlight: List[DashboardReviewSpotlightResponse] = Field(default_factory=list)
