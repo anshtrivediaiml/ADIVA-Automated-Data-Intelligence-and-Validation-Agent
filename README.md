@@ -1,6 +1,24 @@
 # ADIVA — Automated Data Intelligence & Validation Agent
 
-An AI-powered document intelligence platform for automated extraction, validation, and structured review of business documents.
+> An AI-powered document intelligence platform for automated extraction, validation, and structured review of business documents.
+
+![Python](https://img.shields.io/badge/Python-3.11+-blue?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-green?logo=fastapi&logoColor=white)
+![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Supabase-3ECF8E?logo=supabase&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
+
+---
+
+## Why ADIVA?
+
+Manually processing business documents — invoices, purchase orders, receipts — is slow, error-prone, and doesn't scale. ADIVA replaces that with a fully automated pipeline: documents go in, structured and validated data comes out. When the AI isn't confident enough, documents are routed to a human review queue rather than silently producing bad data. The result is a system that's both automated and trustworthy.
+
+---
+
+## Architecture
+
+![ADIVA Architecture](docs/architecture.png)
 
 ---
 
@@ -11,10 +29,29 @@ ADIVA processes uploaded documents (PDF, images, DOCX, TIFF) through a full pipe
 1. **OCR & Extraction** — Tesseract + PaddleOCR extract text and tables
 2. **AI Classification & Parsing** — Mistral AI identifies the document type and extracts structured fields
 3. **Validation** — confidence scoring, field-level quality checks, and rule-based validation
-4. **Review Queue** — low-confidence or flagged documents enter a human review workflow
-5. **Export** — results downloadable as JSON, CSV, or Excel
+4. **AI Recovery** — low-confidence fields are re-attempted with alternative extraction strategies before escalating
+5. **Review Queue** — documents that can't be recovered automatically enter a human review workflow
+6. **Export** — results downloadable as JSON, CSV, or Excel
 
 The frontend is a React operator console for managing jobs, reviewing flagged cases, and downloading results.
+
+---
+
+## How it handles failures
+
+ADIVA doesn't silently drop bad extractions. The failure path is intentional:
+
+```
+Extraction → Validation
+                 ↓ fails
+            AI Recovery (retries with alternate strategies)
+                 ↓ still fails
+            Human Review Queue
+                 ↓ resolved
+            Final Output
+```
+
+The `ENABLE_AI_RECOVERY` flag controls whether recovery runs at all. `AI_RECOVERY_SHADOW_MODE` lets you run recovery in the background without affecting output — useful for monitoring recovery quality before fully relying on it.
 
 ---
 
@@ -60,6 +97,7 @@ ADIVA/
 │       └── types/      # TypeScript models
 │
 ├── alembic/            # Database migrations
+├── docs/               # Architecture diagrams and assets
 ├── QA/                 # Playwright (frontend) + smoke tests (backend)
 ├── outputs/            # Runtime: uploads, results, logs (gitignored)
 │
@@ -312,20 +350,26 @@ Celery-specific settings:
 | `/api/auth/login` | POST | Login, returns JWT |
 | `/api/extract` | POST | Submit single document |
 | `/api/extract/batch` | POST | Submit batch of documents |
-| `/api/jobs` | GET | List all jobs |
+| `/api/jobs` | GET | List all jobs with filters |
 | `/api/jobs/{id}` | GET | Job status + metadata |
 | `/api/results/{id}` | GET | Extraction result |
 | `/api/results/{id}/download/{format}` | GET | Download as `json`, `csv`, `xlsx` |
 | `/api/reviews` | GET | Review queue |
 | `/api/reviews/{id}` | GET | Review case detail |
 | `/api/reviews/{id}/resolve` | POST | Resolve review case |
-| `/api/health` | GET | Health check |
+| `/api/dashboard` | GET | Aggregated stats for dashboard |
+| `/api/health` | GET | Health check (includes Redis/Celery in celery mode) |
+
+Full interactive docs available at `http://localhost:8000/docs` when running locally.
 
 ---
 
 ## QA / Testing
 
 ```bash
+# Backend unit + integration tests
+pytest tests/
+
 # Frontend (Playwright)
 cd QA/frontend
 npm install
